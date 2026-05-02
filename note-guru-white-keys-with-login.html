@@ -647,7 +647,6 @@
     <div style="font-size:0.65rem;color:var(--subtext);text-align:center;margin-bottom:12px;">
       2 letters (school code) + 4 numbers (your number)
     </div>
-    <!-- Letter pad — shown for first 2 chars -->
     <div class="numpad" id="letter-pad" style="margin-bottom:9px;">
       <button class="num-btn" data-key="A">A</button>
       <button class="num-btn" data-key="B">B</button>
@@ -677,7 +676,6 @@
       <button class="num-btn" data-key="Z">Z</button>
       <button class="num-btn delete-btn" data-action="delete">⌫</button>
     </div>
-    <!-- Number pad — shown for last 4 chars -->
     <div class="numpad" id="number-pad" style="display:none;">
       <button class="num-btn" data-key="1">1</button>
       <button class="num-btn" data-key="2">2</button>
@@ -698,12 +696,119 @@
   <button class="code-skip" data-action="skip">Play as guest (no tracking)</button>
 </div>
 
+<!-- ══════════════════ IS THAT YOU? ══════════════════ -->
+<div id="confirm-screen" class="screen">
+  <div class="code-logo">
+    <span class="code-logo-icon">👋</span>
+    <h1 id="confirm-greeting">Is that you?</h1>
+    <p id="confirm-subtext">Please confirm your identity</p>
+  </div>
+  <div class="code-card" style="text-align:center;">
+    <div style="font-size:3rem;margin-bottom:8px;" id="confirm-emoji">🎵</div>
+    <div style="font-size:1.4rem;font-weight:700;color:var(--accent);margin-bottom:6px;" id="confirm-name"></div>
+    <div style="font-size:0.8rem;color:var(--subtext);">Code: <span id="confirm-code-display"></span></div>
+  </div>
+  <button class="code-play-btn ready" id="confirm-yes-btn" style="margin-bottom:12px;">✓ Yes, that's me!</button>
+  <button class="code-skip" id="confirm-no-btn">✗ No, that's not me</button>
+</div>
+
+<!-- ══════════════════ PIN ENTRY ══════════════════ -->
+<div id="pin-screen" class="screen">
+  <div class="code-logo">
+    <span class="code-logo-icon">🔐</span>
+    <h1 id="pin-title">Enter your PIN</h1>
+    <p id="pin-subtitle">Your 4-digit PIN</p>
+  </div>
+  <div class="code-card">
+    <div class="code-label">PIN</div>
+    <div class="code-display" id="pin-display" style="justify-content:center;gap:16px;">
+      <div class="code-digit active" id="pd-0">_</div>
+      <div class="code-digit" id="pd-1">_</div>
+      <div class="code-digit" id="pd-2">_</div>
+      <div class="code-digit" id="pd-3">_</div>
+    </div>
+    <div class="numpad" style="margin-top:12px;">
+      <button class="num-btn" data-pin-key="1">1</button>
+      <button class="num-btn" data-pin-key="2">2</button>
+      <button class="num-btn" data-pin-key="3">3</button>
+      <button class="num-btn" data-pin-key="4">4</button>
+      <button class="num-btn" data-pin-key="5">5</button>
+      <button class="num-btn" data-pin-key="6">6</button>
+      <button class="num-btn" data-pin-key="7">7</button>
+      <button class="num-btn" data-pin-key="8">8</button>
+      <button class="num-btn" data-pin-key="9">9</button>
+      <button class="num-btn delete-btn" data-pin-action="delete">⌫</button>
+      <button class="num-btn" data-pin-key="0">0</button>
+      <button class="num-btn delete-btn" data-pin-action="clear">✕</button>
+    </div>
+  </div>
+  <div class="code-error" id="pin-error"></div>
+  <button class="code-skip" id="pin-back-btn">← Back</button>
+</div>
+
+<!-- ══════════════════ NAME ENTRY ══════════════════ -->
+<div id="name-screen" class="screen">
+  <div class="code-logo">
+    <span class="code-logo-icon">🌟</span>
+    <h1>Welcome!</h1>
+    <p>Let's set up your profile</p>
+  </div>
+  <div class="code-card">
+    <div class="code-label">What's your first name?</div>
+    <input type="text" id="name-input"
+      style="width:100%;background:var(--bg2);border:2px solid var(--border);color:var(--text);
+             border-radius:10px;padding:14px 12px;font-size:1.2rem;text-align:center;
+             font-family:Georgia,serif;margin-bottom:0;outline:none;"
+      placeholder="Type your name..."
+      maxlength="20"
+      autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false">
+    <div style="font-size:0.65rem;color:var(--subtext);text-align:center;margin-top:8px;">
+      This is how the game will greet you
+    </div>
+  </div>
+  <button class="code-play-btn" id="name-next-btn" style="opacity:0.4;pointer-events:none;">Next →</button>
+  <div class="code-error" id="name-error"></div>
+</div>
+
+<!-- ══════════════════ CREATE PIN ══════════════════ -->
+<div id="create-pin-screen" class="screen">
+  <div class="code-logo">
+    <span class="code-logo-icon">🔑</span>
+    <h1 id="create-pin-title">Create your PIN</h1>
+    <p id="create-pin-subtitle">Choose a 4-digit PIN you'll remember</p>
+  </div>
+  <div class="code-card">
+    <div class="code-label" id="create-pin-label">Your PIN</div>
+    <div class="code-display" id="create-pin-display" style="justify-content:center;gap:16px;">
+      <div class="code-digit active" id="cpd-0">_</div>
+      <div class="code-digit" id="cpd-1">_</div>
+      <div class="code-digit" id="cpd-2">_</div>
+      <div class="code-digit" id="cpd-3">_</div>
+    </div>
+    <div class="numpad" style="margin-top:12px;">
+      <button class="num-btn" data-create-pin-key="1">1</button>
+      <button class="num-btn" data-create-pin-key="2">2</button>
+      <button class="num-btn" data-create-pin-key="3">3</button>
+      <button class="num-btn" data-create-pin-key="4">4</button>
+      <button class="num-btn" data-create-pin-key="5">5</button>
+      <button class="num-btn" data-create-pin-key="6">6</button>
+      <button class="num-btn" data-create-pin-key="7">7</button>
+      <button class="num-btn" data-create-pin-key="8">8</button>
+      <button class="num-btn" data-create-pin-key="9">9</button>
+      <button class="num-btn delete-btn" data-create-pin-action="delete">⌫</button>
+      <button class="num-btn" data-create-pin-key="0">0</button>
+      <button class="num-btn delete-btn" data-create-pin-action="clear">✕</button>
+    </div>
+  </div>
+  <div class="code-error" id="create-pin-error"></div>
+</div>
+
 <!-- ══════════════════ MENU ══════════════════ -->
 <div id="menu-screen" class="screen">
   <div class="logo">
     <span class="logo-icon">🎵</span>
     <h1>Note Guru</h1>
-    <p>Train your musical sight-reading</p>
+    <p id="menu-greeting">Train your musical sight-reading</p>
     <div class="menu-btn-row">
       <button class="menu-top-btn" onclick="showRewards()">🏆 My Badges</button>
       <button class="menu-top-btn" onclick="showNoteGuide()">📖 Note Guide</button>
@@ -1055,28 +1160,70 @@ async function omsEndSession(finalScore, totalAnswered) {
 }
 
 // ═══════════════════════════════════════════
-// CODE ENTRY SCREEN
+// LOGIN SYSTEM — Code → Confirm → PIN/Setup
 // ═══════════════════════════════════════════
 let _codeDigits = [];
+let _pendingCode = null;   // code being verified
+let _playerName  = null;   // confirmed player name
+let _pinDigits   = [];
+let _createPinDigits = [];
+let _createPinStage  = 'enter'; // 'enter' | 'confirm'
+let _createPinFirst  = null;    // first PIN entry for confirmation
 
+// ── Helpers ──
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem('omsDeviceId');
+    if (!id) { id = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('omsDeviceId', id); }
+    return id;
+  } catch(e) { return 'unknown'; }
+}
+
+async function lookupStudent(code) {
+  if (!_db) return null;
+  try {
+    const { getDoc, doc: fsDoc } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const snap = await getDoc(fsDoc(_db, 'students', code));
+    return snap.exists() ? snap.data() : null;
+  } catch(e) { console.warn('Student lookup failed', e); return null; }
+}
+
+async function saveStudent(code, name, pin) {
+  if (!_db) return;
+  try {
+    const { setDoc, doc: fsDoc } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    await setDoc(fsDoc(_db, 'students', code), { name, pin, createdAt: Date.now() });
+  } catch(e) { console.warn('Save student failed', e); }
+}
+
+async function updateStudentPin(code, pin) {
+  if (!_db) return;
+  try {
+    const { updateDoc: fsUpdate, doc: fsDoc } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    await fsUpdate(fsDoc(_db, 'students', code), { pin });
+  } catch(e) { console.warn('Update PIN failed', e); }
+}
+
+function showLoginScreen(id) {
+  ['code-screen','confirm-screen','pin-screen','name-screen','create-pin-screen'].forEach(s => {
+    const el = document.getElementById(s);
+    if (el) el.classList.remove('active');
+  });
+  const target = document.getElementById(id);
+  if (target) target.classList.add('active');
+}
+
+// ── Code Entry ──
 function numpadPress(char) {
   if (_codeDigits.length >= 6) return;
-  // First 2 must be letters, last 4 must be numbers
   if (_codeDigits.length < 2 && !/[A-Z]/.test(char)) return;
   if (_codeDigits.length >= 2 && !/[0-9]/.test(char)) return;
   _codeDigits.push(char);
   updateCodeDisplay();
 }
 
-function numpadDelete() {
-  _codeDigits.pop();
-  updateCodeDisplay();
-}
-
-function numpadClear() {
-  _codeDigits = [];
-  updateCodeDisplay();
-}
+function numpadDelete() { _codeDigits.pop(); updateCodeDisplay(); }
+function numpadClear()  { _codeDigits = []; updateCodeDisplay(); }
 
 function updateCodeDisplay() {
   for (let i = 0; i < 6; i++) {
@@ -1088,7 +1235,6 @@ function updateCodeDisplay() {
     if (_codeDigits[i]) el.classList.add('filled');
     if (i === _codeDigits.length && _codeDigits.length < 6) el.classList.add('active');
   }
-  // Switch pads: show letters for first 2, numbers for last 4
   const letterPad = document.getElementById('letter-pad');
   const numberPad = document.getElementById('number-pad');
   if (letterPad && numberPad) {
@@ -1102,30 +1248,223 @@ function updateCodeDisplay() {
   if (errEl) errEl.textContent = '';
 }
 
-function submitCode() {
+async function submitCode() {
   if (_codeDigits.length !== 6) return;
   const code = _codeDigits.join('');
-  _playerCode = code;
-  try { sessionStorage.setItem('omsPlayerCode', code); } catch(e) {}
-  goMenu();
+  _pendingCode = code;
+  const errEl = document.getElementById('code-error');
+  if (errEl) errEl.textContent = 'Checking...';
+
+  const student = await lookupStudent(code);
+
+  if (student && student.name) {
+    // Known student — show confirm screen
+    document.getElementById('confirm-name').textContent = student.name;
+    document.getElementById('confirm-code-display').textContent = code;
+    document.getElementById('confirm-greeting').textContent = 'Is that you, ' + student.name + '?';
+    showLoginScreen('confirm-screen');
+  } else {
+    // New student — go to name entry
+    if (errEl) errEl.textContent = '';
+    showLoginScreen('name-screen');
+    setTimeout(() => document.getElementById('name-input').focus(), 300);
+  }
 }
 
-function skipCode() {
-  _playerCode = null;
-  goMenu();
+function skipCode() { _playerCode = null; _playerName = null; goMenu(); }
+
+// ── Confirm Screen ──
+function confirmYes() {
+  // Known device check — go straight to PIN
+  showPinEntry('enter');
 }
 
-// Event delegation for code entry screen — avoids module scope issues with onclick
+function confirmNo() {
+  _pendingCode = null;
+  _codeDigits = [];
+  updateCodeDisplay();
+  showLoginScreen('code-screen');
+}
+
+// ── PIN Entry ──
+function showPinEntry(mode) {
+  _pinDigits = [];
+  updatePinDisplay();
+  document.getElementById('pin-title').textContent = mode === 'enter' ? 'Enter your PIN' : 'Verify your PIN';
+  document.getElementById('pin-subtitle').textContent = _pendingCode || '';
+  document.getElementById('pin-error').textContent = '';
+  showLoginScreen('pin-screen');
+}
+
+function pinPress(char) {
+  if (_pinDigits.length >= 4) return;
+  _pinDigits.push(char);
+  updatePinDisplay();
+  if (_pinDigits.length === 4) setTimeout(submitPin, 120);
+}
+
+function pinDelete() { _pinDigits.pop(); updatePinDisplay(); }
+function pinClear()  { _pinDigits = []; updatePinDisplay(); }
+
+function updatePinDisplay() {
+  for (let i = 0; i < 4; i++) {
+    const el = document.getElementById('pd-' + i);
+    if (!el) return;
+    el.textContent = _pinDigits[i] ? '●' : '_';
+    el.className = 'code-digit';
+    if (_pinDigits[i]) el.classList.add('filled');
+    if (i === _pinDigits.length && _pinDigits.length < 4) el.classList.add('active');
+  }
+}
+
+async function submitPin() {
+  const enteredPin = _pinDigits.join('');
+  const student = await lookupStudent(_pendingCode);
+  if (!student) { document.getElementById('pin-error').textContent = 'Something went wrong. Try again.'; _pinDigits = []; updatePinDisplay(); return; }
+
+  if (enteredPin === student.pin) {
+    // Correct PIN
+    _playerCode = _pendingCode;
+    _playerName = student.name;
+    try { localStorage.setItem('omsPlayerCode', _playerCode); localStorage.setItem('omsPlayerName', _playerName); } catch(e) {}
+    goMenu();
+  } else {
+    document.getElementById('pin-error').textContent = '❌ Wrong PIN — try again';
+    _pinDigits = [];
+    updatePinDisplay();
+  }
+}
+
+// ── Name Entry ──
+document.addEventListener('DOMContentLoaded', function() {
+  const nameInput = document.getElementById('name-input');
+  const nameNextBtn = document.getElementById('name-next-btn');
+  if (nameInput) {
+    nameInput.addEventListener('input', function() {
+      const val = nameInput.value.trim();
+      if (nameNextBtn) {
+        nameNextBtn.style.opacity = val.length >= 2 ? '1' : '0.4';
+        nameNextBtn.style.pointerEvents = val.length >= 2 ? 'auto' : 'none';
+      }
+    });
+    nameInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') submitName();
+    });
+  }
+  if (nameNextBtn) nameNextBtn.addEventListener('click', submitName);
+
+  // Confirm screen buttons
+  const confirmYesBtn = document.getElementById('confirm-yes-btn');
+  const confirmNoBtn  = document.getElementById('confirm-no-btn');
+  if (confirmYesBtn) confirmYesBtn.addEventListener('click', confirmYes);
+  if (confirmNoBtn)  confirmNoBtn.addEventListener('click', confirmNo);
+
+  // PIN back button
+  const pinBackBtn = document.getElementById('pin-back-btn');
+  if (pinBackBtn) pinBackBtn.addEventListener('click', function() {
+    showLoginScreen('confirm-screen');
+  });
+});
+
+function submitName() {
+  const nameInput = document.getElementById('name-input');
+  const name = nameInput ? nameInput.value.trim() : '';
+  if (name.length < 2) { document.getElementById('name-error').textContent = 'Please enter your name'; return; }
+  _playerName = name;
+  // Go to create PIN
+  startCreatePin();
+}
+
+// ── Create PIN ──
+function startCreatePin() {
+  _createPinDigits = [];
+  _createPinStage = 'enter';
+  _createPinFirst = null;
+  document.getElementById('create-pin-title').textContent = 'Create your PIN';
+  document.getElementById('create-pin-subtitle').textContent = 'Choose a 4-digit PIN you\'ll remember';
+  document.getElementById('create-pin-label').textContent = 'Your PIN';
+  document.getElementById('create-pin-error').textContent = '';
+  updateCreatePinDisplay();
+  showLoginScreen('create-pin-screen');
+}
+
+function createPinPress(char) {
+  if (_createPinDigits.length >= 4) return;
+  _createPinDigits.push(char);
+  updateCreatePinDisplay();
+  if (_createPinDigits.length === 4) setTimeout(submitCreatePin, 120);
+}
+
+function createPinDelete() { _createPinDigits.pop(); updateCreatePinDisplay(); }
+function createPinClear()  { _createPinDigits = []; updateCreatePinDisplay(); }
+
+function updateCreatePinDisplay() {
+  for (let i = 0; i < 4; i++) {
+    const el = document.getElementById('cpd-' + i);
+    if (!el) return;
+    el.textContent = _createPinDigits[i] ? '●' : '_';
+    el.className = 'code-digit';
+    if (_createPinDigits[i]) el.classList.add('filled');
+    if (i === _createPinDigits.length && _createPinDigits.length < 4) el.classList.add('active');
+  }
+}
+
+async function submitCreatePin() {
+  const pin = _createPinDigits.join('');
+
+  if (_createPinStage === 'enter') {
+    // First entry — ask to confirm
+    _createPinFirst = pin;
+    _createPinStage = 'confirm';
+    _createPinDigits = [];
+    document.getElementById('create-pin-title').textContent = 'Confirm your PIN';
+    document.getElementById('create-pin-subtitle').textContent = 'Enter your PIN again to confirm';
+    document.getElementById('create-pin-label').textContent = 'Confirm PIN';
+    document.getElementById('create-pin-error').textContent = '';
+    updateCreatePinDisplay();
+  } else {
+    // Confirm stage
+    if (pin === _createPinFirst) {
+      // PINs match — save to Firebase and go
+      await saveStudent(_pendingCode, _playerName, pin);
+      _playerCode = _pendingCode;
+      try { localStorage.setItem('omsPlayerCode', _playerCode); localStorage.setItem('omsPlayerName', _playerName); } catch(e) {}
+      goMenu();
+    } else {
+      // Mismatch — start over
+      document.getElementById('create-pin-error').textContent = '❌ PINs don\'t match — try again';
+      _createPinDigits = [];
+      _createPinStage = 'enter';
+      _createPinFirst = null;
+      document.getElementById('create-pin-title').textContent = 'Create your PIN';
+      document.getElementById('create-pin-subtitle').textContent = 'Choose a 4-digit PIN you\'ll remember';
+      document.getElementById('create-pin-label').textContent = 'Your PIN';
+      updateCreatePinDisplay();
+    }
+  }
+}
+
+// ── Event delegation ──
 document.addEventListener('click', function(e) {
-  const btn = e.target.closest('[data-key],[data-action]');
+  const btn = e.target.closest('[data-key],[data-action],[data-pin-key],[data-pin-action],[data-create-pin-key],[data-create-pin-action]');
   if (!btn) return;
-  const key    = btn.dataset.key;
-  const action = btn.dataset.action;
-  if (key)    numpadPress(key);
-  if (action === 'delete')  numpadDelete();
-  if (action === 'clear')   numpadClear();
-  if (action === 'submit')  submitCode();
-  if (action === 'skip')    skipCode();
+
+  // Code pad
+  if (btn.dataset.key)    numpadPress(btn.dataset.key);
+  if (btn.dataset.action === 'delete')  numpadDelete();
+  if (btn.dataset.action === 'clear')   numpadClear();
+  if (btn.dataset.action === 'submit')  submitCode();
+  if (btn.dataset.action === 'skip')    skipCode();
+
+  // PIN pad
+  if (btn.dataset.pinKey)              pinPress(btn.dataset.pinKey);
+  if (btn.dataset.pinAction === 'delete') pinDelete();
+  if (btn.dataset.pinAction === 'clear')  pinClear();
+
+  // Create PIN pad
+  if (btn.dataset.createPinKey)                   createPinPress(btn.dataset.createPinKey);
+  if (btn.dataset.createPinAction === 'delete')   createPinDelete();
+  if (btn.dataset.createPinAction === 'clear')    createPinClear();
 });
 
 // ═══════════════════════════════════════════
@@ -3802,6 +4141,11 @@ function goMenu() {
   stopFireworks();
   if (window._collRAFs) { window._collRAFs.forEach(id => cancelAnimationFrame(id)); window._collRAFs = []; }
   if (window._badgeRAFs) { window._badgeRAFs.forEach(id => cancelAnimationFrame(id)); window._badgeRAFs = []; }
+  // Update greeting with player name
+  const greetEl = document.getElementById('menu-greeting');
+  if (greetEl) {
+    greetEl.textContent = _playerName ? 'Welcome back, ' + _playerName + '! 🎵' : 'Train your musical sight-reading';
+  }
   showScreen('menu-screen');
 }
 
@@ -6457,13 +6801,18 @@ initFirebase();
 createStars();
 buildLevelGrid();
 
-// Restore saved player code from this session
+// Restore saved player from this device
 try {
-  const saved = sessionStorage.getItem('omsPlayerCode');
-  if (saved && saved.length === 6) {
-    _playerCode = saved;
-    _codeDigits = saved.split('');
-    showScreen('menu-screen');
+  const savedCode = localStorage.getItem('omsPlayerCode');
+  const savedName = localStorage.getItem('omsPlayerName');
+  if (savedCode && savedCode.length === 6 && savedName) {
+    _pendingCode = savedCode;
+    _playerName  = savedName;
+    // Show "Is that you?" screen
+    document.getElementById('confirm-name').textContent = savedName;
+    document.getElementById('confirm-code-display').textContent = savedCode;
+    document.getElementById('confirm-greeting').textContent = 'Is that you, ' + savedName + '?';
+    showLoginScreen('confirm-screen');
   }
 } catch(e) {}
 
