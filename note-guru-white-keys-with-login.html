@@ -761,12 +761,13 @@
              font-family:Georgia,serif;margin-bottom:0;outline:none;"
       placeholder="Type your name..."
       maxlength="20"
+      oninput="(function(v){var b=document.getElementById('name-next-btn');if(b){b.style.opacity=v.length>=2?'1':'0.4';b.style.pointerEvents=v.length>=2?'auto':'none';}})(this.value.trim())"
       autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false">
     <div style="font-size:0.65rem;color:var(--subtext);text-align:center;margin-top:8px;">
       This is how the game will greet you
     </div>
   </div>
-  <button class="code-play-btn" id="name-next-btn" style="opacity:0.4;pointer-events:none;">Next →</button>
+  <button class="code-play-btn" id="name-next-btn" onclick="submitName()" style="opacity:0.4;pointer-events:none;">Next →</button>
   <div class="code-error" id="name-error"></div>
 </div>
 
@@ -1425,7 +1426,7 @@ async function submitPin() {
 }
 
 // ── Name Entry ──
-document.addEventListener('DOMContentLoaded', function() {
+(function() {
   const nameInput = document.getElementById('name-input');
   const nameNextBtn = document.getElementById('name-next-btn');
   if (nameInput) {
@@ -1453,15 +1454,22 @@ document.addEventListener('DOMContentLoaded', function() {
   if (pinBackBtn) pinBackBtn.addEventListener('click', function() {
     showLoginScreen('confirm-screen');
   });
-});
+})();
 
 function submitName() {
-  const nameInput = document.getElementById('name-input');
-  const name = nameInput ? nameInput.value.trim() : '';
-  if (name.length < 2) { document.getElementById('name-error').textContent = 'Please enter your name'; return; }
-  _playerName = name;
-  // Go to create PIN
-  startCreatePin();
+  try {
+    const nameInput = document.getElementById('name-input');
+    const name = nameInput ? nameInput.value.trim() : '';
+    const errEl = document.getElementById('name-error');
+    if (name.length < 2) { if (errEl) errEl.textContent = 'Please enter your name'; return; }
+    if (errEl) errEl.textContent = '';
+    _playerName = name;
+    startCreatePin();
+  } catch(e) {
+    console.error('submitName error:', e);
+    const ni = document.getElementById('name-input');
+    if (ni && ni.value.trim().length >= 2) { _playerName = ni.value.trim(); startCreatePin(); }
+  }
 }
 
 // ── Create PIN ──
@@ -6953,6 +6961,21 @@ window.htpNext           = htpNext;
 window.htpBack           = htpBack;
 window.loadProgressFromFirebase = loadProgressFromFirebase;
 window.saveFullProgress  = saveFullProgress;
+window.submitName        = submitName;
+window.startCreatePin    = startCreatePin;
+window.showLoginScreen   = showLoginScreen;
+window.confirmYes        = confirmYes;
+window.confirmNo         = confirmNo;
+window.pinPress          = pinPress;
+window.pinDelete         = pinDelete;
+window.pinClear          = pinClear;
+window.submitPin         = submitPin;
+window.createPinPress    = createPinPress;
+window.createPinDelete   = createPinDelete;
+window.createPinClear    = createPinClear;
+window.submitCreatePin   = submitCreatePin;
+window.updatePinDisplay  = updatePinDisplay;
+window.updateCreatePinDisplay = updateCreatePinDisplay;
 </script>
 
 <!-- ══════════════════ HOW TO PLAY SCREEN ══════════════════ -->
