@@ -1193,7 +1193,95 @@ async function saveStudent(code, name, pin) {
   try {
     const { setDoc, doc: fsDoc } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
     await setDoc(fsDoc(_db, 'students', code), { name, pin, createdAt: Date.now() });
+    // Also initialise a blank progress doc if none exists
+    await initProgressDoc(code);
   } catch(e) { console.warn('Save student failed', e); }
+}
+
+// ── Progress doc structure (stored at students/{code}/progress/main) ──
+// {
+//   completions: [false×9],          // level badges earned
+//   collectibles_letters: [false×9],
+//   collectibles_piano: [false×9],
+//   secretAward: false,
+//   totalCorrect: 0,
+//   totalAnswered: 0,
+//   totalSessions: 0,
+//   lastPlayed: timestamp,
+//   noteAccuracy: { C4: {correct:0,total:0}, ... }
+// }
+
+async function initProgressDoc(code) {
+  if (!_db || !code) return;
+  try {
+    const { getDoc, setDoc, doc: fsDoc } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const ref = fsDoc(_db, 'students', code, 'progress', 'main');
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        completions: [false,false,false,false,false,false,false,false,false],
+        collectibles_letters: [false,false,false,false,false,false,false,false,false],
+        collectibles_piano:   [false,false,false,false,false,false,false,false,false],
+        secretAward: false,
+        totalCorrect: 0,
+        totalAnswered: 0,
+        totalSessions: 0,
+        lastPlayed: Date.now(),
+        noteAccuracy: {}
+      });
+    }
+  } catch(e) { console.warn('initProgressDoc failed', e); }
+}
+
+// Load all progress from Firebase into localStorage (called after login)
+async function loadProgressFromFirebase(code) {
+  if (!_db || !code) return;
+  try {
+    const { getDoc, doc: fsDoc } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const ref = fsDoc(_db, 'students', code, 'progress', 'main');
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const d = snap.data();
+      try {
+        if (d.completions)           localStorage.setItem('noteReaderCompletions', JSON.stringify(d.completions));
+        if (d.collectibles_letters)  localStorage.setItem('noteGuruCollectibles_letters', JSON.stringify(d.collectibles_letters));
+        if (d.collectibles_piano)    localStorage.setItem('noteGuruCollectibles_piano', JSON.stringify(d.collectibles_piano));
+        if (d.secretAward)           localStorage.setItem('noteGuruSecretAward', '1');
+      } catch(e) {}
+      console.log('Progress loaded from Firebase for', code);
+    } else {
+      await initProgressDoc(code);
+    }
+  } catch(e) { console.warn('loadProgressFromFirebase failed', e); }
+}
+
+// Save a specific progress field to Firebase (non-blocking)
+async function saveProgressField(code, fields) {
+  if (!_db || !code) return;
+  try {
+    const { updateDoc, doc: fsDoc, serverTimestamp: sts } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const ref = fsDoc(_db, 'students', code, 'progress', 'main');
+    await updateDoc(ref, { ...fields, lastPlayed: Date.now() });
+  } catch(e) { console.warn('saveProgressField failed', e); }
+}
+
+// Save full progress snapshot (completions + collectibles + stats)
+async function saveFullProgress(code, extraFields) {
+  if (!_db || !code) return;
+  try {
+    const completions = JSON.parse(localStorage.getItem('noteReaderCompletions') || '[false,false,false,false,false,false,false,false,false]');
+    const cLetters    = JSON.parse(localStorage.getItem('noteGuruCollectibles_letters') || '[false,false,false,false,false,false,false,false,false]');
+    const cPiano      = JSON.parse(localStorage.getItem('noteGuruCollectibles_piano') || '[false,false,false,false,false,false,false,false,false]');
+    const secretAward = !!localStorage.getItem('noteGuruSecretAward');
+    await saveProgressField(code, {
+      completions,
+      collectibles_letters: cLetters,
+      collectibles_piano: cPiano,
+      secretAward,
+      ...(extraFields || {})
+    });
+    console.log('Full progress saved to Firebase for', code);
+  } catch(e) { console.warn('saveFullProgress failed', e); }
 }
 
 async function updateStudentPin(code, pin) {
@@ -1327,6 +1415,7 @@ async function submitPin() {
     _playerCode = _pendingCode;
     _playerName = student.name;
     try { localStorage.setItem('omsPlayerCode', _playerCode); localStorage.setItem('omsPlayerName', _playerName); } catch(e) {}
+    await loadProgressFromFirebase(_playerCode);
     goMenu();
   } else {
     document.getElementById('pin-error').textContent = '❌ Wrong PIN — try again';
@@ -1429,6 +1518,7 @@ async function submitCreatePin() {
       await saveStudent(_pendingCode, _playerName, pin);
       _playerCode = _pendingCode;
       try { localStorage.setItem('omsPlayerCode', _playerCode); localStorage.setItem('omsPlayerName', _playerName); } catch(e) {}
+      await loadProgressFromFirebase(_playerCode);
       goMenu();
     } else {
       // Mismatch — start over
@@ -1495,6 +1585,8 @@ function setLevelComplete(levelIndex) {
   const c = getCompletions();
   c[levelIndex] = true;
   try { localStorage.setItem('noteReaderCompletions', JSON.stringify(c)); } catch(e) {}
+  // Sync to Firebase
+  if (_playerCode) saveProgressField(_playerCode, { completions: c });
 }
 
 // ─── Celebration Screen ───
@@ -5289,6 +5381,19 @@ function endGame() {
   clearInterval(timerInterval);
   clearSurvivalTimer();
   omsEndSession(score, totalAnswered); // OMS: save session to Firestore
+  // Save cumulative stats snapshot to Firebase progress doc
+  if (_playerCode) {
+    saveFullProgress(_playerCode, {
+      totalCorrect:   (parseInt(localStorage.getItem('omsTotalCorrect') || '0') + score),
+      totalAnswered:  (parseInt(localStorage.getItem('omsTotalAnswered') || '0') + totalAnswered),
+      totalSessions:  (parseInt(localStorage.getItem('omsTotalSessions') || '0') + 1),
+    });
+    try {
+      localStorage.setItem('omsTotalCorrect',   String(parseInt(localStorage.getItem('omsTotalCorrect') || '0') + score));
+      localStorage.setItem('omsTotalAnswered',  String(parseInt(localStorage.getItem('omsTotalAnswered') || '0') + totalAnswered));
+      localStorage.setItem('omsTotalSessions',  String(parseInt(localStorage.getItem('omsTotalSessions') || '0') + 1));
+    } catch(e) {}
+  }
   // Silence any still-ringing note
   if (activePianoGain) {
     try {
@@ -5747,6 +5852,11 @@ function grantCollectible(levelIndex, mode) {
   const arr = getCollectibles(mode);
   arr[levelIndex] = true;
   try { localStorage.setItem(key, JSON.stringify(arr)); } catch(e) {}
+  // Sync to Firebase
+  if (_playerCode) {
+    const fbField = mode === 'piano' ? { collectibles_piano: arr } : { collectibles_letters: arr };
+    saveProgressField(_playerCode, fbField);
+  }
 }
 
 // Which collectible index maps to which level+mode
@@ -6785,16 +6895,6 @@ function showRewardsCollectibles() {
 }
 
 // ═══════════════════════════════════════════
-// CLEAR BADGES ON LOAD
-// ═══════════════════════════════════════════
-try {
-  localStorage.removeItem('noteReaderCompletions');
-  localStorage.removeItem('noteGuruSecretAward');
-  localStorage.removeItem('noteGuruCollectibles_letters');
-  localStorage.removeItem('noteGuruCollectibles_piano');
-} catch(e) {}
-
-// ═══════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════
 initFirebase();
@@ -6808,11 +6908,14 @@ try {
   if (savedCode && savedCode.length === 6 && savedName) {
     _pendingCode = savedCode;
     _playerName  = savedName;
+    _playerCode  = savedCode; // pre-set so progress loads if they tap Yes
     // Show "Is that you?" screen
     document.getElementById('confirm-name').textContent = savedName;
     document.getElementById('confirm-code-display').textContent = savedCode;
     document.getElementById('confirm-greeting').textContent = 'Is that you, ' + savedName + '?';
     showLoginScreen('confirm-screen');
+    // Pre-load progress in background (will be ready by the time they start playing)
+    loadProgressFromFirebase(savedCode);
   }
 } catch(e) {}
 
@@ -6848,6 +6951,8 @@ window.closeHTP          = closeHTP;
 window.closeNoteGuide    = closeNoteGuide;
 window.htpNext           = htpNext;
 window.htpBack           = htpBack;
+window.loadProgressFromFirebase = loadProgressFromFirebase;
+window.saveFullProgress  = saveFullProgress;
 </script>
 
 <!-- ══════════════════ HOW TO PLAY SCREEN ══════════════════ -->
