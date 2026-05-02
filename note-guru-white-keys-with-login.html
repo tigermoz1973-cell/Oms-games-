@@ -732,15 +732,15 @@
       <span class="mode-name">Timed</span>
       <span class="mode-desc">Race the clock</span>
     </button>
-    <button class="mode-btn" id="mode-survival" onclick="selectMode('survival')">
-      <span class="mode-icon">❤️</span>
-      <span class="mode-name">Survival</span>
-      <span class="mode-desc">3 lives · gets faster</span>
-    </button>
     <button class="mode-btn" id="mode-custom" onclick="openCustomMode()">
       <span class="mode-icon">🎛️</span>
       <span class="mode-name">Custom</span>
       <span class="mode-desc">Your rules</span>
+    </button>
+    <button class="mode-btn" id="mode-survival" onclick="selectMode('survival')">
+      <span class="mode-icon">❤️</span>
+      <span class="mode-name">Survival</span>
+      <span class="mode-desc">3 lives · gets faster</span>
     </button>
   </div>
 
@@ -944,11 +944,20 @@
 
 <script type="module">
 // ═══════════════════════════════════════════
-// FIREBASE + OMS ANALYTICS
+// FIREBASE + OMS ANALYTICS (optional — game works without it)
 // ═══════════════════════════════════════════
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, collection, addDoc, doc, updateDoc, serverTimestamp }
-  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+let initializeApp, getFirestore, collection, addDoc, doc, updateDoc, serverTimestamp;
+try {
+  const fbApp = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+  const fbStore = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+  initializeApp   = fbApp.initializeApp;
+  getFirestore    = fbStore.getFirestore;
+  collection      = fbStore.collection;
+  addDoc          = fbStore.addDoc;
+  doc             = fbStore.doc;
+  updateDoc       = fbStore.updateDoc;
+  serverTimestamp = fbStore.serverTimestamp;
+} catch(e) { console.warn('Firebase failed to load — running without analytics', e); }
 
 const firebaseConfig = {
   apiKey: "AIzaSyDelTTZQhOihOkqUaGg3xEtt3NOlCkfb9M",
@@ -968,6 +977,7 @@ let _questionNum = 0;      // cumulative question counter across sessions
 let _questionStartTime = 0;
 
 function initFirebase() {
+  if (!initializeApp || !getFirestore) return;
   try {
     _fbApp = initializeApp(firebaseConfig);
     _db    = getFirestore(_fbApp);
@@ -3783,7 +3793,7 @@ function startCustomGame() {
 // SCREEN SWITCHING
 // ═══════════════════════════════════════════
 function showScreen(id) {
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
 function goMenu() {
@@ -4345,20 +4355,19 @@ function drawGrandStaff(ctx, W, H, noteObj) {
 }
 
 function drawClef(ctx,clef,x,cy,ls) {
-  ctx.fillStyle = getCurrentBelt().staffColor; ctx.textBaseline='middle';
+  ctx.save();
+  ctx.fillStyle = getCurrentBelt().staffColor;
+  ctx.textBaseline='middle';
+  ctx.shadowColor='rgba(180,200,255,0.45)';
+  ctx.shadowBlur=5;
+  ctx.font=`${ls*6.2}px Georgia,'Times New Roman',serif`;
   if(clef==='treble'){
-    // Treble clef glyph is very tall — use ls*5.5 to visually match bass clef height
-    ctx.font=`${ls*5.5}px serif`;
-    ctx.fillText('𝄞',x,cy+ls*0.8);
+    ctx.fillText('𝄞',x,cy+ls*0.5);
   } else {
-    // Bass clef dots must straddle the F line = 4th line from bottom = cy - 2*ls
-    // The 𝄢 glyph at size ls*5: dots sit roughly at 0.55 of font-size above baseline
-    // So baseline = F_line + offset to place dots there
-    // Empirically: textBaseline='middle' centres the glyph body; dots are above centre
-    // Shift glyph down so dots sit on F line (cy - 2*ls)
-    ctx.font=`${ls*6}px serif`;
-    ctx.fillText('𝄢', x, cy + ls * 0.1);
+    ctx.fillText('𝄢', x, cy + ls * 0.3);
   }
+  ctx.shadowBlur=0;
+  ctx.restore();
 }
 
 function drawNote(ctx, noteObj, noteX, centerY, ls) {
@@ -6615,12 +6624,19 @@ window.htpBack           = htpBack;
       </div>
       <div class="htp-section">
         <div class="htp-section-title"><span>🎹</span> Piano Mode</div>
-        <div class="htp-text">
+        <div class="htp-text" style="margin-bottom:8px;">
           Choose <em>Piano</em> instead of Note Names and all three modes —
           Timed, Custom, and Survival — work exactly the same way.
           The only difference is you answer by tapping the correct key
           on the piano keyboard rather than a letter button.
         </div>
+        <div class="htp-canvas-wrap">
+          <div class="canvas-wrap">
+            <canvas id="htp-canvas-piano" style="border-radius:8px;display:block;width:100%;height:240px;"></canvas>
+            <div class="tap-overlay" id="tap-overlay-piano"><span>▶</span><p>Tap to start</p></div>
+          </div>
+        </div>
+        <div style="text-align:center;"><button class="pause-btn" id="pause-btn-piano">⏸ Pause</button></div>
       </div>
       <div class="htp-nav">
         <button class="htp-nav-back" onclick="htpGoTo(1)">← Back</button>
@@ -6898,9 +6914,11 @@ function ngInit(){
     ctx.strokeStyle='rgba(200,210,240,0.55)';ctx.lineWidth=1;
     for(let i=-2;i<=2;i++){ctx.beginPath();ctx.moveTo(SL,cy+i*LS*2);ctx.lineTo(SR,cy+i*LS*2);ctx.stroke();}
     ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(SL,cy-LS*4);ctx.lineTo(SL,cy+LS*4);ctx.stroke();
-    ctx.fillStyle='rgba(200,210,240,0.7)';ctx.textBaseline='middle';ctx.textAlign='left';
-    if(clef==='bass'){ctx.font=`${LS*5.5}px serif`;ctx.fillText('𝄢',SL+2,cy+LS*0.1);}
-    else{ctx.font=`${LS*5.2}px serif`;ctx.fillText('𝄞',SL+2,cy+LS*0.8);}
+    ctx.fillStyle='rgba(220,230,255,0.92)';ctx.textBaseline='middle';ctx.textAlign='left';
+    ctx.shadowColor='rgba(180,200,255,0.4)';ctx.shadowBlur=3;
+    if(clef==='bass'){ctx.font=`${LS*6.2}px Georgia,'Times New Roman',serif`;ctx.fillText('𝄢',SL+2,cy+LS*0.3);}
+    else{ctx.font=`${LS*6.2}px Georgia,'Times New Roman',serif`;ctx.fillText('𝄞',SL+2,cy+LS*0.5);}
+    ctx.shadowBlur=0;
     ctx.restore();
   }
 
@@ -6981,13 +6999,7 @@ function ngInit(){
       ctx.restore();
       // Connector from piano key to ledger line
       if(wkIdx>=0) drawConnector(entry.key, ledgerY, alpha);
-      // Clef hint labels
-      ctx.save();ctx.globalAlpha=alpha*0.5;
-      ctx.fillStyle='rgba(200,210,240,0.7)';ctx.font='italic 8px Georgia,serif';
-      ctx.textAlign='left';ctx.textBaseline='middle';
-      ctx.fillText('treble',SL+28,GRAND_TREBLE_CY);
-      ctx.fillText('bass',SL+28,GRAND_BASS_CY);
-      ctx.restore();
+      // Clef hint labels removed
       // Middle C label — to the right of note head
       ctx.save();ctx.globalAlpha=alpha;
       ctx.fillStyle=col;ctx.font=`bold ${LS*2.2}px Georgia,serif`;
@@ -7132,9 +7144,15 @@ function htpRAF(fn) {
 function rr(ctx,x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r);} // roundRect shorthand
 
 function drawTrebleClef(ctx, x, cy, ls) {
-  ctx.fillStyle='rgba(200,215,240,0.75)';
-  ctx.font=`${ls*5.2}px serif`; ctx.textAlign='left'; ctx.textBaseline='middle';
-  ctx.fillText('𝄞', x, cy + ls*0.82);
+  ctx.save();
+  ctx.fillStyle='rgba(220,230,255,0.92)';
+  ctx.font=`${ls*6.2}px Georgia, 'Times New Roman', serif`;
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.shadowColor='rgba(180,200,255,0.4)';
+  ctx.shadowBlur=3;
+  ctx.fillText('𝄞', x, cy + ls*0.5);
+  ctx.shadowBlur=0;
+  ctx.restore();
 }
 
 function drawStaffLines(ctx, lx, rx, cy, ls, alpha) {
@@ -7339,8 +7357,10 @@ function startCDEFGAnim() {
     {name:'G',pos:-2,col:'#c084fc',wi:4},
   ];
   const PY=6, PWH=58, WKW=W/5;
-  const LS=9, STAFF_CY=PWH+PY+34+LS*4, NR=LS*0.95;
-  const CLEF_W=38, NOTE_X=W*0.50;
+  const LS=8, STAFF_CY=PWH+PY+30+LS*4, NR=LS*0.95;
+  const CLEF_W=38;
+  const STAFF_L=CLEF_W+4, STAFF_R=W-8;
+  const NOTE_X=Math.round((STAFF_L+42+STAFF_R)/2);
   const NAMES5=['C','D','E','F','G'];
 
   let activeIdx=0, phaseT=0, lastPlayedIdx=-1, started=false, paused=false;
@@ -7348,8 +7368,8 @@ function startCDEFGAnim() {
 
   // Draw a static first frame so the canvas isn't blank behind the overlay
   ctx.fillStyle='#0a1520'; ctx.fillRect(0,0,W,H);
-  drawStaffLines(ctx,CLEF_W+4,W-8,STAFF_CY,LS,1);
-  drawTrebleClef(ctx,CLEF_W-30,STAFF_CY,LS);
+  drawStaffLines(ctx,STAFF_L,STAFF_R,STAFF_CY,LS,1);
+  drawTrebleClef(ctx,STAFF_L,STAFF_CY,LS);
 
   function draw(){
     if (!started || paused) return;
@@ -7361,9 +7381,9 @@ function startCDEFGAnim() {
       const x=i*WKW+0.5, y=PY, w=WKW-1, h=PWH;
       const g=ctx.createLinearGradient(x,y,x,y+h);
       if(isAct){g.addColorStop(0,n.col);g.addColorStop(0.6,n.col+'bb');g.addColorStop(1,n.col+'44');}
-      else{g.addColorStop(0,'#e8e8e0');g.addColorStop(1,'#ccccc0');}
+      else{g.addColorStop(0,'#f0f0e8');g.addColorStop(0.85,'#e2e1da');g.addColorStop(1,'#ccccb8');}
       ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(x,y,w,h,[0,0,4,4]); ctx.fill();
-      ctx.strokeStyle=isAct?n.col:'rgba(0,0,0,0.15)'; ctx.lineWidth=isAct?2:0.5;
+      ctx.strokeStyle=isAct?n.col:'rgba(0,0,0,0.18)'; ctx.lineWidth=isAct?1.8:0.5;
       ctx.beginPath(); ctx.roundRect(x,y,w,h,[0,0,4,4]); ctx.stroke();
       ctx.fillStyle=isAct?'#0a1520':'#555';
       ctx.font=`bold ${Math.max(9,WKW*0.38)}px Georgia,serif`; ctx.textAlign='center'; ctx.textBaseline='bottom';
@@ -7375,8 +7395,8 @@ function startCDEFGAnim() {
     ctx.setLineDash([2,5]); ctx.strokeStyle=act.col; ctx.lineWidth=1.4;
     ctx.beginPath(); ctx.moveTo(keyCX,PY+PWH+2); ctx.lineTo(NOTE_X,noteY-NR); ctx.stroke();
     ctx.setLineDash([]); ctx.restore();
-    drawStaffLines(ctx,CLEF_W+4,W-8,STAFF_CY,LS,1);
-    drawTrebleClef(ctx,CLEF_W-30,STAFF_CY,LS);
+    drawStaffLines(ctx,STAFF_L,STAFF_R,STAFF_CY,LS,1);
+    drawTrebleClef(ctx,STAFF_L,STAFF_CY,LS);
     const ny_only = STAFF_CY - act.pos*LS;
     drawLedgerLines(ctx, NOTE_X, act.pos, STAFF_CY, LS, NR);
     drawNoteHead(ctx, NOTE_X, ny_only, NR, act.col, null, LS, act.pos);
@@ -7660,9 +7680,9 @@ function startModePicker() {
   const W = CSS_W, H = CSS_H;
 
   const MODES = [
-    { label: 'Timed',    sub: 'Race the clock', icon: '⏱', active: true,  col: '#5b9bd5' },
+    { label: 'Timed',    sub: 'Race the clock',  icon: '⏱',  active: true,  col: '#5b9bd5' },
+    { label: 'Custom',   sub: 'Your rules',       icon: 'grid', active: false, col: '#e8c97e' },
     { label: 'Survival', sub: '3 lives · faster', icon: '❤️', active: false, col: '#e05555' },
-    { label: 'Custom',   sub: 'Your rules',     icon: 'grid', active: false, col: '#e8c97e' },
   ];
 
   let pulse = 0;
@@ -7927,8 +7947,8 @@ function startLettersAnim() {
     drawStaffLines(ctx, STAFF_L, STAFF_R, cy, LS, 1);
     drawTrebleClef(ctx, CLEF_X, cy, LS);
 
-    // Note only drawn in phases 0–2; phase 3 = badge screen, stave stays clean
-    if (phase < 3 && ni < NOTES.length * 100) {
+    // Note only drawn in phases 0–1; hidden during level-up (phase 2) and badge (phase 3)
+    if (phase < 2 && ni < NOTES.length * 100) {
       drawLedgerLines(ctx, NOTE_X, n.pos, cy, LS, NR);
       drawNoteHead(ctx, NOTE_X, cy - n.pos * LS, NR, belt.noteCol, null, LS, n.pos);
     }
@@ -7953,12 +7973,12 @@ function startLettersAnim() {
       ctx.fillText('Badge Earned!', W * 0.5, CORRECT_Y + 12);
     }
 
-    // answered flag for button highlights (phases 0–2 only)
-    const answered = phase < 3 && (phase >= 1 || (phase === 0 && phaseT >= answerAt));
+    // answered flag for button highlights (phase 1 only — not during level-up)
+    const answered = phase === 1 || (phase === 0 && phaseT >= answerAt);
     // 7 letter buttons — correct lights mid-bar, all unlit in phase 3
     BTN_LABELS.forEach((lbl, i) => {
       const bx = BTN_START_X + i * BTN_SPACING;
-      const isCorrect = phase < 3 && answered && i === n.correct;
+      const isCorrect = phase === 1 && answered && i === n.correct;
       ctx.fillStyle = isCorrect ? '#4caf7d' : '#1a2f4a';
       ctx.strokeStyle = isCorrect ? '#4caf7d' : '#2a4060';
       ctx.lineWidth = isCorrect ? 2 : 1.5;
@@ -7976,7 +7996,7 @@ function startLettersAnim() {
 
     phaseT++;
     if (phase === 0 && phaseT > dur()) { phase = 1; phaseT = 0; }
-    else if (phase === 1 && phaseT > 24) {
+    else if (phase === 1 && phaseT > 60) {
       answersThisBelt++; ni++; phaseT = 0; answerAt = newAnswerAt();
       if (answersThisBelt >= 2) { answersThisBelt = 0; phase = 2; } else { phase = 0; }
     }
@@ -8320,11 +8340,186 @@ function htpPlayNote(freq) {
 }
 
 // ═══════════════════════════════════════════════════════
-// PAGE ANIM MAP
+// PIANO MODE DEMO — staff note + piano key lights up
+// ═══════════════════════════════════════════════════════
+function startPianoModeAnim() {
+  const cv = document.getElementById('htp-canvas-piano');
+  if (!cv) return;
+  const par = cv.parentElement;
+  const CSS_W = Math.min(par.offsetWidth - 4, 460);
+  const CSS_H = 240;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = CSS_W * dpr; cv.height = CSS_H * dpr;
+  cv.style.width = CSS_W + 'px'; cv.style.height = CSS_H + 'px';
+  const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
+  const W = CSS_W, H = CSS_H;
+
+  const BELTS = [
+    {noteCol:'#f0f0f0'},{noteCol:'#ffe033'},{noteCol:'#4ee87a'},
+    {noteCol:'#ff8c2a'},{noteCol:'#3ab5ff'},{noteCol:'#ff4444'},{noteCol:'#c86eff'},
+  ];
+  const NOTES = [
+    {pos:-6,name:'C',wi:0},{pos:-3,name:'F',wi:3},{pos:-1,name:'A',wi:5},
+    {pos:-5,name:'D',wi:1},{pos:-2,name:'G',wi:4},{pos: 0,name:'B',wi:6},
+    {pos:-4,name:'E',wi:2},
+  ];
+  const WK = ['C','D','E','F','G','A','B'];
+
+  const LS = 7, cy = 58, NR = LS * 0.9;
+  const STAFF_L = 42, STAFF_R = W - 8;
+  const NOTE_X = Math.round((STAFF_L + 40 + STAFF_R) / 2);
+
+  // Piano — fixed small size, well below staff
+  const PY = 162;
+  const PWH = 74;
+  const WKW = W / 7;
+  const BKH = 43, BKW = WKW * 0.52;
+  const BLACK_SLOTS = [1, 2, 4, 5, 6];
+
+  // Belt cycling
+  let beltIdx = 0, ni = 0, phase = 0, phaseT = 0, answersThisBelt = 0;
+  const BASE_DUR = 280;
+  function dur() { return Math.round(BASE_DUR * Math.pow(0.88, beltIdx)); }
+
+  // Belt pip row
+  function drawPips() {
+    const pipR = 5, pipY = 12, pipSpacing = 16;
+    const totalPipW = 7 * pipSpacing;
+    const pipStartX = (W - totalPipW) / 2;
+    for (let i = 0; i < 7; i++) {
+      const bx = pipStartX + i * pipSpacing + pipR;
+      ctx.beginPath(); ctx.arc(bx, pipY, pipR, 0, Math.PI * 2);
+      ctx.fillStyle = i < beltIdx ? BELTS[i].noteCol + '88' : i === beltIdx ? BELTS[i].noteCol : '#1e3655';
+      ctx.fill();
+      ctx.strokeStyle = i === beltIdx ? BELTS[i].noteCol : 'transparent';
+      ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
+
+  let started = false, paused = false;
+
+  // Static first frame
+  ctx.fillStyle = '#0d1520'; ctx.fillRect(0, 0, W, H);
+  drawStaffLines(ctx, STAFF_L, STAFF_R, cy, LS, 1);
+  drawTrebleClef(ctx, STAFF_L, cy, LS);
+
+  function draw() {
+    if (!started || paused) return;
+    const belt = BELTS[beltIdx];
+    const n = NOTES[ni % NOTES.length];
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0d1520'; ctx.fillRect(0, 0, W, H);
+
+    drawPips();
+
+    // Timer bar
+    const barW = W * 0.9, barX = W * 0.05, barY = 22;
+    const fill = phase === 0 ? Math.max(0, 1 - phaseT / dur()) : 0;
+    ctx.fillStyle = '#1a2f4a'; ctx.beginPath(); ctx.roundRect(barX, barY, barW, 5, 2); ctx.fill();
+    if (fill > 0) {
+      const g = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+      g.addColorStop(0, '#4caf7d'); g.addColorStop(0.5, '#e8c97e'); g.addColorStop(1, '#e05555');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(barX, barY, barW * fill, 5, 2); ctx.fill();
+    }
+
+    // Staff + clef
+    drawStaffLines(ctx, STAFF_L, STAFF_R, cy, LS, 1);
+    drawTrebleClef(ctx, STAFF_L, cy, LS);
+
+    // Note (hidden during level-up phase 2)
+    if (phase < 2) {
+      drawLedgerLines(ctx, NOTE_X, n.pos, cy, LS, NR);
+      drawNoteHead(ctx, NOTE_X, cy - n.pos * LS, NR, belt.noteCol, null, LS, n.pos);
+    }
+
+    // Level Up
+    if (phase === 2 && beltIdx < 6) {
+      const nextBelt = BELTS[beltIdx + 1];
+      ctx.fillStyle = nextBelt.noteCol;
+      ctx.font = `bold ${Math.round(H * 0.07)}px Georgia,serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('LEVEL UP! ▲', W * 0.5, cy + LS * 5.5);
+    }
+
+    // White keys
+    for (let k = 0; k < 7; k++) {
+      const isLit = phase === 1 && k === n.wi;
+      const x = k * WKW + 0.5, kw = WKW - 1;
+      const g = ctx.createLinearGradient(x, PY, x, PY + PWH);
+      if (isLit) {
+        g.addColorStop(0, belt.noteCol); g.addColorStop(0.6, belt.noteCol + 'aa'); g.addColorStop(1, belt.noteCol + '44');
+      } else {
+        g.addColorStop(0, '#f0f0e8'); g.addColorStop(1, '#ddddd0');
+      }
+      ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(x, PY, kw, PWH, [0, 0, 4, 4]); ctx.fill();
+      ctx.strokeStyle = isLit ? belt.noteCol : 'rgba(0,0,0,0.2)'; ctx.lineWidth = isLit ? 2 : 0.6;
+      ctx.beginPath(); ctx.roundRect(x, PY, kw, PWH, [0, 0, 4, 4]); ctx.stroke();
+      // Key label
+      ctx.fillStyle = isLit ? '#0a1520' : '#555';
+      ctx.font = `bold ${Math.max(8, WKW * 0.32)}px Georgia,serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(WK[k], x + WKW / 2, PY + PWH - 3);
+    }
+
+    // Black keys
+    BLACK_SLOTS.forEach(slot => {
+      const bx = slot * WKW - BKW / 2;
+      const bg = ctx.createLinearGradient(bx, PY, bx, PY + BKH);
+      bg.addColorStop(0, '#3c3c3c'); bg.addColorStop(0.08, '#1e1e1e');
+      bg.addColorStop(0.7, '#111'); bg.addColorStop(1, '#2c2c2c');
+      ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(bx, PY, BKW, BKH, [0, 0, 3, 3]); ctx.fill();
+    });
+
+    // Correct tick when key lights
+    if (phase === 1) {
+      ctx.fillStyle = '#4caf7d';
+      ctx.font = `bold ${Math.round(H * 0.065)}px Georgia,serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('✓ ' + n.name, W * 0.5, cy + LS * 5.5);
+    }
+
+    phaseT++;
+    if (phase === 0 && phaseT > dur()) { phase = 1; phaseT = 0; }
+    else if (phase === 1 && phaseT > 55) {
+      answersThisBelt++; ni++; phaseT = 0;
+      if (answersThisBelt >= 2) { answersThisBelt = 0; phase = 2; } else { phase = 0; }
+    }
+    else if (phase === 2 && phaseT > 50) {
+      beltIdx = (beltIdx + 1) % 7; phase = 0; phaseT = 0;
+    }
+  }
+  htpRAF(draw);
+
+  const overlay  = document.getElementById('tap-overlay-piano');
+  const pauseBtn = document.getElementById('pause-btn-piano');
+  let tapped = false;
+
+  function doStart() {
+    if (tapped) return; tapped = true;
+    if (overlay) overlay.style.display = 'none';
+    if (pauseBtn) { pauseBtn.style.display = 'block'; pauseBtn.textContent = '⏸ Pause'; pauseBtn.classList.add('playing'); }
+    const ac = _htpGetAC(); if (ac) ac.resume();
+    _htpAudioOn = true; started = true; paused = false;
+  }
+
+  if (overlay) {
+    overlay.addEventListener('touchstart', (e) => { e.preventDefault(); doStart(); }, { passive: false });
+    overlay.addEventListener('click', doStart);
+  }
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', () => {
+      paused = !paused;
+      pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+      paused ? pauseBtn.classList.remove('playing') : pauseBtn.classList.add('playing');
+    });
+  }
+}
+
+
 const _htpPageAnims = [
   () => startCDEFGAnim(),
   () => startWelcomeAnim(),
-  () => { startHomescreenMock(); startModePicker(); startTimedMock(); startCustomMock(); startLettersAnim(); },
+  () => { startHomescreenMock(); startModePicker(); startTimedMock(); startCustomMock(); startLettersAnim(); startPianoModeAnim(); },
 ];
 
 </script>
