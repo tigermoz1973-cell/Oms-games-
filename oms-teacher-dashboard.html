@@ -324,17 +324,8 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// Stub so inline onclick works before module loads
-function attemptLogin() { if(window._attemptLogin) window._attemptLogin(); }
-function logout() { if(window._logout) window._logout(); }
-function renderTable() { if(window._renderTable) window._renderTable(); }
-function refreshData() { if(window._refreshData) window._refreshData(); }
-function exportCSV() { if(window._exportCSV) window._exportCSV(); }
-function toggleExpand(c) { if(window._toggleExpand) window._toggleExpand(c); }
-</script>
-<script type="module">
-// ── Config ────────────────────────────────────────────────────
-const TEACHER_PASSWORD = 'oms2024'; // ← Change this to your preferred password
+// ── All dashboard logic in a plain script ──────────────────────
+const TEACHER_PASSWORD = 'oms2024';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDelTTZQhOihOkqUaGg3xEtt3NOlCkfb9M",
@@ -351,27 +342,27 @@ const BADGE_NAMES = [
   'Sharp Eye', 'Music Scholar', 'Note Guru Master'
 ];
 
-// ── State ─────────────────────────────────────────────────────
 let _db = null;
-let _students = []; // [{code, name, createdAt, completions, collectibles_letters, collectibles_piano, totalCorrect, totalAnswered, totalSessions, lastPlayed, noteAccuracy}]
+let _students = [];
 let _expandedCode = null;
+let _fsLib = null;
 
-// ── Stars ─────────────────────────────────────────────────────
+// ── Stars ──────────────────────────────────────────────────────
 (function() {
   const wrap = document.getElementById('stars');
   for (let i = 0; i < 60; i++) {
     const s = document.createElement('div');
     s.className = 'star';
     const size = Math.random() * 2.2 + 0.8;
-    s.style.cssText = `width:${size}px;height:${size}px;top:${Math.random()*100}%;left:${Math.random()*100}%;--d:${(Math.random()*4+2).toFixed(1)}s;--o:${(Math.random()*0.5+0.2).toFixed(2)};animation-delay:${(Math.random()*4).toFixed(1)}s`;
+    s.style.cssText = 'width:'+size+'px;height:'+size+'px;top:'+(Math.random()*100)+'%;left:'+(Math.random()*100)+'%;--d:'+(Math.random()*4+2).toFixed(1)+'s;--o:'+(Math.random()*0.5+0.2).toFixed(2)+';animation-delay:'+(Math.random()*4).toFixed(1)+'s';
     wrap.appendChild(s);
   }
 })();
 
-// ── Login ─────────────────────────────────────────────────────
-window._attemptLogin = window.attemptLogin = function() {
-  const pw = document.getElementById('pw-input').value.trim();
-  const errEl = document.getElementById('login-error');
+// ── Login ──────────────────────────────────────────────────────
+function attemptLogin() {
+  var pw = document.getElementById('pw-input').value.trim();
+  var errEl = document.getElementById('login-error');
   if (pw === TEACHER_PASSWORD) {
     errEl.textContent = '';
     document.getElementById('login-screen').classList.remove('active');
@@ -382,28 +373,27 @@ window._attemptLogin = window.attemptLogin = function() {
     document.getElementById('pw-input').value = '';
     document.getElementById('pw-input').focus();
   }
-};
+}
 
-window._logout = window.logout = function() {
+function logout() {
   document.getElementById('dash-screen').classList.remove('active');
   document.getElementById('login-screen').classList.add('active');
   document.getElementById('pw-input').value = '';
   document.getElementById('login-error').textContent = '';
-};
+}
 
-// Enter key on password field
-document.getElementById('pw-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') window.attemptLogin();
+document.getElementById('pw-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') attemptLogin();
 });
 
-// ── Firebase init ─────────────────────────────────────────────
+// ── Firebase init ──────────────────────────────────────────────
 async function initDashboard() {
   try {
-    const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
-    const { getFirestore, collection, getDocs, doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
-    const app = initializeApp(firebaseConfig, 'dashboard');
-    _db = getFirestore(app);
-    window._fsLib = { collection, getDocs, doc, getDoc };
+    const fbApp   = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+    const fbStore = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+    const app = fbApp.initializeApp(firebaseConfig, 'dashboard');
+    _db = fbStore.getFirestore(app);
+    _fsLib = fbStore;
     await loadAllStudents();
   } catch(e) {
     console.error('Firebase init failed', e);
@@ -416,7 +406,10 @@ async function initDashboard() {
 async function loadAllStudents() {
   showLoading(true);
   try {
-    const { collection, getDocs, doc, getDoc } = window._fsLib;
+    const collection = _fsLib.collection;
+    const getDocs    = _fsLib.getDocs;
+    const doc        = _fsLib.doc;
+    const getDoc     = _fsLib.getDoc;
 
     // Fetch all student docs
     const studentsSnap = await getDocs(collection(_db, 'students'));
@@ -487,7 +480,7 @@ function updateSummaryStats() {
 }
 
 // ── Table rendering ───────────────────────────────────────────
-window._renderTable = window.renderTable = function() {
+function renderTable() {
   const search = document.getElementById('search-input').value.trim().toLowerCase();
   const sort   = document.getElementById('sort-select').value;
 
@@ -622,20 +615,20 @@ function buildExpandPanel(s) {
 }
 
 // ── Toggle expand row ─────────────────────────────────────────
-window._toggleExpand = window.toggleExpand = function(code) {
+function toggleExpand(code) {
   _expandedCode = _expandedCode === code ? null : code;
   renderTable();
 };
 
 // ── Refresh ───────────────────────────────────────────────────
-window._refreshData = window.refreshData = async function() {
+async function refreshData() {
   _expandedCode = null;
   await loadAllStudents();
   showToast('✅ Data refreshed');
 };
 
 // ── Export CSV ────────────────────────────────────────────────
-window._exportCSV = window.exportCSV = function() {
+function exportCSV() {
   if (_students.length === 0) { showToast('No data to export'); return; }
 
   const headers = ['Code','Name','Badges Earned','Accuracy %','Sessions','Total Correct','Total Answered','Last Played',...BADGE_NAMES];
@@ -697,8 +690,7 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2800);
 }
 
-// Expose globals needed by inline handlers
-window.renderTable = window.renderTable;
+// end
 </script>
 </body>
 </html>
