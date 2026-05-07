@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>OMS Teacher Dashboard</title>
+<style>
+  :root {
+    --bg:      #0d1b2e;
+    --bg2:     #112240;
+    --card:    #1a2f4a;
+    --card2:   #1e3655;
+    --accent:  #e8c97e;
+    --accent2: #f0a050;
+    --green:   #4caf7d;
+    --red:     #e05555;
+    --blue:    #5b9bd5;
+    --text:    #d0dff0;
+    --subtext: #8aa0b8;
+    --border:  #2a4060;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: Georgia, 'Times New Roman', serif;
+    min-height: 100vh;
+  }
+
+  /* ── Stars ── */
+  .stars { position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:0; }
+  .star {
+    position:absolute; background:white; border-radius:50%;
+    animation: twinkle var(--d,3s) ease-in-out infinite; opacity:var(--o,0.5);
+  }
+  @keyframes twinkle {
+    0%,100%{ opacity:var(--o,0.5); } 50%{ opacity:0.08; }
+  }
+
+  /* ── Screens ── */
+  .screen { display:none; position:relative; z-index:1; }
+  .screen.active { display:block; }
+
+  /* ══════════════════════════════
+     LOGIN SCREEN
+  ══════════════════════════════ */
+  #login-screen {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:100vh; padding:32px 20px;
+  }
+  #login-screen.active { display:flex; }
+
+  .logo-wrap { text-align:center; margin-bottom:36px; }
+  .logo-wrap .logo-icon { font-size:2.6rem; display:block; margin-bottom:8px; }
+  .logo-wrap h1 { font-size:1.9rem; font-weight:700; color:var(--text); letter-spacing:0.05em; }
+  .logo-wrap p  { font-size:0.9rem; color:var(--subtext); font-style:italic; margin-top:4px; }
+
+  .login-card {
+    background:var(--card); border:1.5px solid var(--border); border-radius:16px;
+    padding:28px 24px; width:100%; max-width:380px;
+  }
+  .login-card h2 { font-size:1.1rem; color:var(--accent); margin-bottom:18px; text-align:center; letter-spacing:0.05em; }
+
+  .field-label { font-size:0.75rem; color:var(--subtext); letter-spacing:0.15em; text-transform:uppercase; margin-bottom:7px; display:block; }
+
+  .text-input {
+    width:100%; background:var(--bg2); border:1.5px solid var(--border); border-radius:9px;
+    color:var(--text); font-size:1rem; font-family:inherit; padding:12px 14px;
+    outline:none; transition:border-color 0.2s; margin-bottom:18px;
+  }
+  .text-input:focus { border-color:var(--accent); }
+
+  .login-btn {
+    width:100%; background:var(--accent); color:#0d1b2e; border:none; border-radius:10px;
+    font-size:1rem; font-weight:700; font-family:inherit; padding:13px;
+    cursor:pointer; transition:background 0.2s; letter-spacing:0.05em;
+  }
+  .login-btn:hover { background:var(--accent2); }
+  .login-btn:disabled { opacity:0.45; cursor:not-allowed; }
+
+  .login-error { color:var(--red); font-size:0.85rem; text-align:center; margin-top:12px; min-height:20px; }
+
+  /* ══════════════════════════════
+     DASHBOARD SCREEN
+  ══════════════════════════════ */
+  #dash-screen { padding:20px 16px 60px; max-width:900px; margin:0 auto; }
+
+  .dash-header {
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:22px; gap:12px; flex-wrap:wrap;
+  }
+  .dash-title { font-size:1.5rem; font-weight:700; color:var(--text); }
+  .dash-subtitle { font-size:0.8rem; color:var(--subtext); margin-top:2px; }
+
+  .dash-actions { display:flex; gap:9px; flex-wrap:wrap; }
+
+  .icon-btn {
+    background:var(--card); border:1.5px solid var(--border); border-radius:9px;
+    color:var(--text); font-size:0.82rem; font-family:inherit;
+    padding:8px 14px; cursor:pointer; transition:all 0.2s; white-space:nowrap;
+  }
+  .icon-btn:hover { border-color:var(--accent); color:var(--accent); }
+
+  /* ── Stats row ── */
+  .stats-row {
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(130px,1fr)); gap:10px;
+    margin-bottom:22px;
+  }
+  .stat-card {
+    background:var(--card); border:1.5px solid var(--border); border-radius:12px;
+    padding:14px 16px; text-align:center;
+  }
+  .stat-num { font-size:1.8rem; font-weight:700; color:var(--accent); }
+  .stat-label { font-size:0.72rem; color:var(--subtext); margin-top:3px; letter-spacing:0.1em; text-transform:uppercase; }
+
+  /* ── Filter bar ── */
+  .filter-bar {
+    display:flex; gap:9px; margin-bottom:16px; flex-wrap:wrap; align-items:center;
+  }
+  .filter-input {
+    flex:1; min-width:160px; background:var(--card); border:1.5px solid var(--border);
+    border-radius:9px; color:var(--text); font-size:0.9rem; font-family:inherit;
+    padding:9px 13px; outline:none; transition:border-color 0.2s;
+  }
+  .filter-input:focus { border-color:var(--accent); }
+  .filter-select {
+    background:var(--card); border:1.5px solid var(--border); border-radius:9px;
+    color:var(--text); font-size:0.85rem; font-family:inherit; padding:9px 10px;
+    outline:none; cursor:pointer;
+  }
+
+  /* ── Student table ── */
+  .table-wrap { overflow-x:auto; border-radius:12px; border:1.5px solid var(--border); }
+
+  table { width:100%; border-collapse:collapse; font-size:0.87rem; }
+
+  thead { background:var(--card2); }
+  thead th {
+    padding:11px 10px; text-align:left; font-size:0.7rem; letter-spacing:0.15em;
+    text-transform:uppercase; color:var(--accent); font-weight:700;
+    border-bottom:1.5px solid var(--border); white-space:nowrap;
+  }
+  thead th.center { text-align:center; }
+
+  tbody tr {
+    border-bottom:1px solid var(--border); transition:background 0.15s; cursor:pointer;
+  }
+  tbody tr:last-child { border-bottom:none; }
+  tbody tr:hover { background:var(--card2); }
+  tbody tr.expanded { background:var(--card2); }
+
+  td { padding:11px 10px; vertical-align:middle; }
+  td.center { text-align:center; }
+
+  .student-code { font-weight:700; color:var(--accent); letter-spacing:0.08em; font-size:0.95rem; }
+  .student-name { color:var(--text); }
+
+  .badge-cell { font-size:0.95rem; }
+  .b-earned { color:var(--green); }
+  .b-empty  { color:var(--border); opacity:0.6; }
+
+  .pct-bar-wrap { display:flex; align-items:center; gap:7px; min-width:80px; }
+  .pct-bar-bg { flex:1; height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+  .pct-bar-fill { height:100%; border-radius:3px; transition:width 0.4s; }
+  .pct-num { font-size:0.78rem; color:var(--subtext); white-space:nowrap; }
+
+  .last-played { color:var(--subtext); font-size:0.8rem; white-space:nowrap; }
+
+  /* ── Expanded row ── */
+  .expand-row td { padding:0; }
+  .expand-panel {
+    background:var(--bg2); border-top:1px solid var(--border);
+    padding:18px 14px 20px; display:none;
+  }
+  .expand-row.open .expand-panel { display:block; }
+
+  .expand-title { font-size:0.75rem; letter-spacing:0.15em; text-transform:uppercase; color:var(--accent); margin-bottom:14px; }
+
+  .note-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(70px,1fr)); gap:8px; }
+  .note-card {
+    background:var(--card); border:1px solid var(--border); border-radius:8px;
+    padding:9px 6px; text-align:center;
+  }
+  .note-name { font-size:0.85rem; font-weight:700; color:var(--text); margin-bottom:4px; }
+  .note-pct  { font-size:1.1rem; font-weight:700; }
+  .note-tries{ font-size:0.68rem; color:var(--subtext); margin-top:2px; }
+
+  .expand-badges { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  .badge-chip {
+    background:var(--card); border:1px solid var(--border); border-radius:20px;
+    padding:5px 12px; font-size:0.78rem; display:flex; align-items:center; gap:5px;
+  }
+  .badge-chip.earned { border-color:var(--green); color:var(--green); }
+  .badge-chip.locked { color:var(--subtext); opacity:0.6; }
+
+  .expand-stats { display:flex; gap:18px; flex-wrap:wrap; margin-bottom:16px; }
+  .expand-stat-item { font-size:0.82rem; }
+  .expand-stat-item span { color:var(--accent); font-weight:700; }
+
+  /* ── Loading / empty states ── */
+  .loading-wrap { text-align:center; padding:48px 20px; color:var(--subtext); }
+  .loading-spinner {
+    width:36px; height:36px; border:3px solid var(--border);
+    border-top-color:var(--accent); border-radius:50%;
+    animation:spin 0.8s linear infinite; margin:0 auto 14px;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .empty-state { text-align:center; padding:48px 20px; color:var(--subtext); font-style:italic; }
+
+  /* ── Logout ── */
+  .logout-btn {
+    background:transparent; border:1.5px solid var(--border); border-radius:9px;
+    color:var(--subtext); font-size:0.8rem; font-family:inherit;
+    padding:7px 13px; cursor:pointer; transition:all 0.2s;
+  }
+  .logout-btn:hover { border-color:var(--red); color:var(--red); }
+
+  /* ── Toast ── */
+  .toast {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    background:var(--card2); border:1.5px solid var(--accent); border-radius:10px;
+    color:var(--text); padding:11px 20px; font-size:0.88rem;
+    z-index:999; opacity:0; transition:opacity 0.3s; pointer-events:none;
+    white-space:nowrap;
+  }
+  .toast.show { opacity:1; }
+
+  @media (max-width:600px) {
+    .dash-header { flex-direction:column; align-items:flex-start; }
+    .stats-row { grid-template-columns:1fr 1fr; }
+    table { font-size:0.78rem; }
+    td, thead th { padding:9px 7px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Stars -->
+<div class="stars" id="stars"></div>
+
+<!-- ══════════════════════════════
+     LOGIN SCREEN
+══════════════════════════════ -->
+<div id="login-screen" class="screen active">
+  <div class="logo-wrap">
+    <span class="logo-icon">🎵</span>
+    <h1>Note Guru</h1>
+    <p>Teacher Dashboard</p>
+  </div>
+  <div class="login-card">
+    <h2>🔐 Teacher Access</h2>
+    <label class="field-label" for="pw-input">Dashboard Password</label>
+    <input class="text-input" id="pw-input" type="password" placeholder="Enter password" autocomplete="current-password">
+    <button class="login-btn" id="login-btn" onclick="attemptLogin()">Enter Dashboard</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════
+     DASHBOARD SCREEN
+══════════════════════════════ -->
+<div id="dash-screen" class="screen">
+
+  <div class="dash-header">
+    <div>
+      <div class="dash-title">📊 Student Progress</div>
+      <div class="dash-subtitle" id="dash-subtitle">Note Guru — White Keys</div>
+    </div>
+    <div class="dash-actions">
+      <button class="icon-btn" onclick="refreshData()">🔄 Refresh</button>
+      <button class="icon-btn" onclick="exportCSV()">⬇️ Export CSV</button>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <!-- Summary stats -->
+  <div class="stats-row" id="stats-row">
+    <div class="stat-card"><div class="stat-num" id="stat-students">—</div><div class="stat-label">Students</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-active">—</div><div class="stat-label">Active (7 days)</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-badges">—</div><div class="stat-label">Badges Earned</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-sessions">—</div><div class="stat-label">Total Sessions</div></div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <input class="filter-input" id="search-input" type="text" placeholder="🔍  Search by name or code…" oninput="renderTable()">
+    <select class="filter-select" id="sort-select" onchange="renderTable()">
+      <option value="name">Sort: Name</option>
+      <option value="code">Sort: Code</option>
+      <option value="badges">Sort: Badges</option>
+      <option value="last">Sort: Last Played</option>
+      <option value="sessions">Sort: Sessions</option>
+    </select>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap" id="table-wrap">
+    <div class="loading-wrap" id="loading-state">
+      <div class="loading-spinner"></div>
+      <div>Loading students…</div>
+    </div>
+    <table id="student-table" style="display:none">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Name</th>
+          <th class="center">Badges</th>
+          <th class="center" style="min-width:90px">Accuracy</th>
+          <th class="center">Sessions</th>
+          <th class="center">Last Played</th>
+        </tr>
+      </thead>
+      <tbody id="table-body"></tbody>
+    </table>
+    <div class="empty-state" id="empty-state" style="display:none">No students found.</div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ── Config ────────────────────────────────────────────────────
+const TEACHER_PASSWORD = 'oms2024'; // ← Change this to your preferred password
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDelTTZQhOihOkqUaGg3xEtt3NOlCkfb9M",
+  authDomain: "note-guru-553aa.firebaseapp.com",
+  projectId: "note-guru-553aa",
+  storageBucket: "note-guru-553aa.firebasestorage.app",
+  messagingSenderId: "321147300919",
+  appId: "1:321147300919:web:907022314d3aeb138223b2"
+};
+
+const BADGE_NAMES = [
+  'First Notes', 'Note Spotter', 'Treble Clef Scout',
+  'Staff Reader', 'Bass Explorer', 'Grand Staff Climber',
+  'Sharp Eye', 'Music Scholar', 'Note Guru Master'
+];
+
+// ── State ─────────────────────────────────────────────────────
+let _db = null;
+let _students = []; // [{code, name, createdAt, completions, collectibles_letters, collectibles_piano, totalCorrect, totalAnswered, totalSessions, lastPlayed, noteAccuracy}]
+let _expandedCode = null;
+
+// ── Stars ─────────────────────────────────────────────────────
+(function() {
+  const wrap = document.getElementById('stars');
+  for (let i = 0; i < 60; i++) {
+    const s = document.createElement('div');
+    s.className = 'star';
+    const size = Math.random() * 2.2 + 0.8;
+    s.style.cssText = `width:${size}px;height:${size}px;top:${Math.random()*100}%;left:${Math.random()*100}%;--d:${(Math.random()*4+2).toFixed(1)}s;--o:${(Math.random()*0.5+0.2).toFixed(2)};animation-delay:${(Math.random()*4).toFixed(1)}s`;
+    wrap.appendChild(s);
+  }
+})();
+
+// ── Login ─────────────────────────────────────────────────────
+window.attemptLogin = function() {
+  const pw = document.getElementById('pw-input').value.trim();
+  const errEl = document.getElementById('login-error');
+  if (pw === TEACHER_PASSWORD) {
+    errEl.textContent = '';
+    document.getElementById('login-screen').classList.remove('active');
+    document.getElementById('dash-screen').classList.add('active');
+    initDashboard();
+  } else {
+    errEl.textContent = '❌ Incorrect password — try again';
+    document.getElementById('pw-input').value = '';
+    document.getElementById('pw-input').focus();
+  }
+};
+
+window.logout = function() {
+  document.getElementById('dash-screen').classList.remove('active');
+  document.getElementById('login-screen').classList.add('active');
+  document.getElementById('pw-input').value = '';
+  document.getElementById('login-error').textContent = '';
+};
+
+// Enter key on password field
+document.getElementById('pw-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') window.attemptLogin();
+});
+
+// ── Firebase init ─────────────────────────────────────────────
+async function initDashboard() {
+  try {
+    const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+    const { getFirestore, collection, getDocs, doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+    const app = initializeApp(firebaseConfig, 'dashboard');
+    _db = getFirestore(app);
+    window._fsLib = { collection, getDocs, doc, getDoc };
+    await loadAllStudents();
+  } catch(e) {
+    console.error('Firebase init failed', e);
+    showToast('❌ Failed to connect to database');
+    showLoading(false);
+  }
+}
+
+// ── Load all students ─────────────────────────────────────────
+async function loadAllStudents() {
+  showLoading(true);
+  try {
+    const { collection, getDocs, doc, getDoc } = window._fsLib;
+
+    // Fetch all student docs
+    const studentsSnap = await getDocs(collection(_db, 'students'));
+    const results = [];
+
+    // For each student, also fetch their progress subcollection
+    const promises = studentsSnap.docs.map(async (studentDoc) => {
+      const code = studentDoc.id;
+      const data = studentDoc.data();
+      let progress = {
+        completions: new Array(9).fill(false),
+        collectibles_letters: new Array(9).fill(false),
+        collectibles_piano:   new Array(9).fill(false),
+        totalCorrect: 0,
+        totalAnswered: 0,
+        totalSessions: 0,
+        lastPlayed: null,
+        noteAccuracy: {}
+      };
+      try {
+        const progRef = doc(_db, 'students', code, 'progress', 'main');
+        const progSnap = await getDoc(progRef);
+        if (progSnap.exists()) {
+          const p = progSnap.data();
+          progress = {
+            completions:           p.completions           || new Array(9).fill(false),
+            collectibles_letters:  p.collectibles_letters  || new Array(9).fill(false),
+            collectibles_piano:    p.collectibles_piano    || new Array(9).fill(false),
+            totalCorrect:          p.totalCorrect          || 0,
+            totalAnswered:         p.totalAnswered         || 0,
+            totalSessions:         p.totalSessions         || 0,
+            lastPlayed:            p.lastPlayed            || null,
+            noteAccuracy:          p.noteAccuracy          || {}
+          };
+        }
+      } catch(e) { /* progress might not exist yet */ }
+
+      results.push({ code, name: data.name || '(no name)', createdAt: data.createdAt || 0, ...progress });
+    });
+
+    await Promise.all(promises);
+    _students = results;
+    updateSummaryStats();
+    renderTable();
+    showLoading(false);
+
+    const ts = new Date().toLocaleTimeString('en-AU', {hour:'2-digit', minute:'2-digit'});
+    document.getElementById('dash-subtitle').textContent = `Note Guru — White Keys · Last updated ${ts}`;
+  } catch(e) {
+    console.error('loadAllStudents failed', e);
+    showToast('❌ Failed to load student data');
+    showLoading(false);
+  }
+}
+
+// ── Summary stats ─────────────────────────────────────────────
+function updateSummaryStats() {
+  const now = Date.now();
+  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+  const active = _students.filter(s => s.lastPlayed && (now - s.lastPlayed) < sevenDays).length;
+  const totalBadges = _students.reduce((sum, s) => sum + (s.completions || []).filter(Boolean).length, 0);
+  const totalSessions = _students.reduce((sum, s) => sum + (s.totalSessions || 0), 0);
+
+  document.getElementById('stat-students').textContent = _students.length;
+  document.getElementById('stat-active').textContent = active;
+  document.getElementById('stat-badges').textContent = totalBadges;
+  document.getElementById('stat-sessions').textContent = totalSessions;
+}
+
+// ── Table rendering ───────────────────────────────────────────
+window.renderTable = function() {
+  const search = document.getElementById('search-input').value.trim().toLowerCase();
+  const sort   = document.getElementById('sort-select').value;
+
+  let filtered = _students.filter(s =>
+    !search ||
+    s.name.toLowerCase().includes(search) ||
+    s.code.toLowerCase().includes(search)
+  );
+
+  filtered.sort((a, b) => {
+    if (sort === 'name')     return a.name.localeCompare(b.name);
+    if (sort === 'code')     return a.code.localeCompare(b.code);
+    if (sort === 'badges')   return badgeCount(b) - badgeCount(a);
+    if (sort === 'last')     return (b.lastPlayed||0) - (a.lastPlayed||0);
+    if (sort === 'sessions') return (b.totalSessions||0) - (a.totalSessions||0);
+    return 0;
+  });
+
+  const tbody = document.getElementById('table-body');
+  tbody.innerHTML = '';
+
+  if (filtered.length === 0) {
+    document.getElementById('student-table').style.display = 'none';
+    document.getElementById('empty-state').style.display = 'block';
+    return;
+  }
+  document.getElementById('student-table').style.display = 'table';
+  document.getElementById('empty-state').style.display = 'none';
+
+  filtered.forEach(s => {
+    const isExpanded = _expandedCode === s.code;
+    const pct = s.totalAnswered > 0 ? Math.round(s.totalCorrect / s.totalAnswered * 100) : null;
+    const pctColor = pct === null ? '#8aa0b8' : pct >= 80 ? '#4caf7d' : pct >= 60 ? '#e8c97e' : '#e05555';
+    const lastStr = formatDate(s.lastPlayed);
+    const badges = s.completions || new Array(9).fill(false);
+    const earned = badges.filter(Boolean).length;
+
+    // Main row
+    const tr = document.createElement('tr');
+    if (isExpanded) tr.classList.add('expanded');
+    tr.innerHTML = `
+      <td><span class="student-code">${s.code}</span></td>
+      <td class="student-name">${escHtml(s.name)}</td>
+      <td class="center badge-cell">${badgeDotsHtml(badges)} <span style="font-size:0.75rem;color:var(--subtext);margin-left:4px">${earned}/9</span></td>
+      <td class="center">
+        ${pct !== null
+          ? `<div class="pct-bar-wrap"><div class="pct-bar-bg"><div class="pct-bar-fill" style="width:${pct}%;background:${pctColor}"></div></div><span class="pct-num">${pct}%</span></div>`
+          : `<span style="color:var(--subtext);font-size:0.8rem">—</span>`}
+      </td>
+      <td class="center" style="color:var(--subtext)">${s.totalSessions || 0}</td>
+      <td class="center last-played">${lastStr}</td>
+    `;
+    tr.addEventListener('click', () => toggleExpand(s.code));
+    tbody.appendChild(tr);
+
+    // Expand row
+    const exTr = document.createElement('tr');
+    exTr.className = 'expand-row' + (isExpanded ? ' open' : '');
+    exTr.innerHTML = `<td colspan="6"><div class="expand-panel">${buildExpandPanel(s)}</div></td>`;
+    tbody.appendChild(exTr);
+  });
+};
+
+function badgeCount(s) { return (s.completions||[]).filter(Boolean).length; }
+
+function badgeDotsHtml(completions) {
+  return completions.map((earned, i) =>
+    `<span class="${earned ? 'b-earned' : 'b-empty'}" title="Level ${i+1}: ${BADGE_NAMES[i]}">${earned ? '●' : '○'}</span>`
+  ).join(' ');
+}
+
+function buildExpandPanel(s) {
+  const badges = s.completions || new Array(9).fill(false);
+
+  // Badge chips
+  const badgeHtml = BADGE_NAMES.map((name, i) =>
+    `<div class="badge-chip ${badges[i] ? 'earned' : 'locked'}">${badges[i] ? '🏅' : '🔒'} L${i+1} ${name}</div>`
+  ).join('');
+
+  // Stats line
+  const pct = s.totalAnswered > 0 ? Math.round(s.totalCorrect / s.totalAnswered * 100) : null;
+  const statsHtml = `
+    <div class="expand-stats">
+      <div class="expand-stat-item">Correct: <span>${s.totalCorrect}</span></div>
+      <div class="expand-stat-item">Answered: <span>${s.totalAnswered}</span></div>
+      <div class="expand-stat-item">Accuracy: <span>${pct !== null ? pct + '%' : '—'}</span></div>
+      <div class="expand-stat-item">Sessions: <span>${s.totalSessions||0}</span></div>
+    </div>
+  `;
+
+  // Note accuracy grid
+  let noteHtml = '';
+  const noteAcc = s.noteAccuracy || {};
+  const noteKeys = Object.keys(noteAcc).sort();
+  if (noteKeys.length > 0) {
+    noteHtml = `
+      <div class="expand-title" style="margin-top:14px">Note Accuracy</div>
+      <div class="note-grid">
+        ${noteKeys.map(k => {
+          const n = noteAcc[k];
+          const notePct = n.total > 0 ? Math.round(n.correct / n.total * 100) : 0;
+          const col = notePct >= 80 ? '#4caf7d' : notePct >= 60 ? '#e8c97e' : '#e05555';
+          // Strip octave for display (C4 → C)
+          const noteName = k.replace(/[0-9]/g, '');
+          return `<div class="note-card">
+            <div class="note-name">${noteName}<sub style="font-size:0.6rem;color:var(--subtext)">${k.replace(/\D/g,'')}</sub></div>
+            <div class="note-pct" style="color:${col}">${notePct}%</div>
+            <div class="note-tries">${n.correct}/${n.total}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  // Collectibles summary
+  const cLetters = (s.collectibles_letters||[]).filter(Boolean).length;
+  const cPiano   = (s.collectibles_piano||[]).filter(Boolean).length;
+  const collHtml = `
+    <div class="expand-stats" style="margin-top:12px;margin-bottom:0">
+      <div class="expand-stat-item">🔤 Letter collectibles: <span>${cLetters}/9</span></div>
+      <div class="expand-stat-item">🎹 Piano collectibles: <span>${cPiano}/9</span></div>
+    </div>
+  `;
+
+  return `
+    <div class="expand-title">Badges — ${s.name} (${s.code})</div>
+    <div class="expand-badges">${badgeHtml}</div>
+    ${statsHtml}
+    ${collHtml}
+    ${noteHtml}
+  `;
+}
+
+// ── Toggle expand row ─────────────────────────────────────────
+window.toggleExpand = function(code) {
+  _expandedCode = _expandedCode === code ? null : code;
+  renderTable();
+};
+
+// ── Refresh ───────────────────────────────────────────────────
+window.refreshData = async function() {
+  _expandedCode = null;
+  await loadAllStudents();
+  showToast('✅ Data refreshed');
+};
+
+// ── Export CSV ────────────────────────────────────────────────
+window.exportCSV = function() {
+  if (_students.length === 0) { showToast('No data to export'); return; }
+
+  const headers = ['Code','Name','Badges Earned','Accuracy %','Sessions','Total Correct','Total Answered','Last Played',...BADGE_NAMES];
+  const rows = _students.map(s => {
+    const badges = s.completions || new Array(9).fill(false);
+    const pct = s.totalAnswered > 0 ? Math.round(s.totalCorrect / s.totalAnswered * 100) : '';
+    return [
+      s.code,
+      s.name,
+      badges.filter(Boolean).length,
+      pct,
+      s.totalSessions || 0,
+      s.totalCorrect || 0,
+      s.totalAnswered || 0,
+      s.lastPlayed ? new Date(s.lastPlayed).toLocaleDateString('en-AU') : '',
+      ...badges.map(b => b ? 'Yes' : 'No')
+    ];
+  });
+
+  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type:'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `oms-students-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('⬇️ CSV downloaded');
+};
+
+// ── Helpers ───────────────────────────────────────────────────
+function showLoading(on) {
+  document.getElementById('loading-state').style.display = on ? 'block' : 'none';
+  if (on) {
+    document.getElementById('student-table').style.display = 'none';
+    document.getElementById('empty-state').style.display = 'none';
+  }
+}
+
+function formatDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  const now = new Date();
+  const diffDays = Math.floor((now - d) / (1000*60*60*24));
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7)  return `${diffDays}d ago`;
+  return d.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// Expose globals needed by inline handlers
+window.renderTable = window.renderTable;
+</script>
+</body>
+</html>
