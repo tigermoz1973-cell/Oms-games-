@@ -1393,7 +1393,7 @@ async function submitCode() {
   const allowed = await checkWhitelist(code);
   if (!allowed) {
     if (errEl) {
-      errEl.textContent = '❌ Invalid code — ask your teacher';
+      errEl.textContent = '❌ Invalid code — please try again';
       errEl.dataset.persist = '1';
     }
     _codeDigits = [];
