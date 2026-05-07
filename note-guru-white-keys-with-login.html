@@ -653,6 +653,7 @@
     <div style="font-size:0.65rem;color:var(--subtext);text-align:center;margin-bottom:12px;">
       2 letters (school code) + 4 numbers (your number)
     </div>
+    <div class="code-error" id="code-error"></div>
     <div class="numpad" id="letter-pad" style="margin-bottom:9px;">
       <button class="num-btn" data-key="A">A</button>
       <button class="num-btn" data-key="B">B</button>
@@ -698,7 +699,6 @@
     </div>
   </div>
   <button class="code-play-btn" id="code-play-btn" data-action="submit">▶ LET'S PLAY</button>
-  <div class="code-error" id="code-error"></div>
   <button class="code-skip" data-action="skip">Play as guest (no tracking)</button>
 </div>
 
@@ -1339,6 +1339,9 @@ function numpadPress(char) {
   if (_codeDigits.length >= 6) return;
   if (_codeDigits.length < 2 && !/[A-Z]/.test(char)) return;
   if (_codeDigits.length >= 2 && !/[0-9]/.test(char)) return;
+  // Clear any persisted error when they start typing
+  var errEl = document.getElementById('code-error');
+  if (errEl) { errEl.textContent = ''; errEl.dataset.persist = ''; }
   _codeDigits.push(char);
   updateCodeDisplay();
 }
@@ -1392,7 +1395,6 @@ async function submitCode() {
     if (errEl) {
       errEl.textContent = '❌ Invalid code — ask your teacher';
       errEl.dataset.persist = '1';
-      setTimeout(function() { errEl.dataset.persist = ''; errEl.textContent = ''; }, 3000);
     }
     _codeDigits = [];
     updateCodeDisplay();
