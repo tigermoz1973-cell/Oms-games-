@@ -1060,7 +1060,7 @@
   </div>
   <div class="collectibles-tabs" style="margin-bottom:14px">
     <button class="coll-tab active" id="badge-tab-letters" onclick="switchBadgeTab('letters')">🔤 Note Names</button>
-    <button class="coll-tab" id="badge-tab-piano" onclick="switchBadgeTab('piano')">🎹 Piano</button>
+    <button class="coll-tab" id="badge-tab-piano" onclick="handleBadgeTabTap('piano')">🎹 Piano</button>
   </div>
   <div class="rewards-tally">
     <span id="rewards-count">0</span><small id="rewards-tally-label"> / 9 levels completed</small>
@@ -1937,13 +1937,32 @@ function showRewards() {
   showScreen('rewards-screen');
 }
 
+// ── Badge preview mode (triple-tap Piano tab to toggle) ──
+let badgePreviewAll = false;
+let badgeTabTapCount = 0;
+let badgeTabTapTimer = null;
+
+function handleBadgeTabTap(mode) {
+  switchBadgeTab(mode);
+  if (mode === 'piano') {
+    badgeTabTapCount++;
+    clearTimeout(badgeTabTapTimer);
+    badgeTabTapTimer = setTimeout(function() { badgeTabTapCount = 0; }, 600);
+    if (badgeTabTapCount >= 3) {
+      badgeTabTapCount = 0;
+      badgePreviewAll = !badgePreviewAll;
+      buildRewardsGrid();
+    }
+  }
+}
+
 function buildRewardsGrid() {
   const isPiano = currentBadgeTab === 'piano';
   const badgeSet = isPiano ? PIANO_BADGES : LEVEL_BADGES;
   const grid = document.getElementById('rewards-grid');
   const completions = getCompletions(isPiano ? 'piano' : 'letters');
   const count = completions.filter(Boolean).length;
-  document.getElementById('rewards-count').textContent = count;
+  document.getElementById('rewards-count').textContent = badgePreviewAll ? 9 : count;
   // Update tab active states
   const btl = document.getElementById('badge-tab-letters');
   const btp = document.getElementById('badge-tab-piano');
@@ -1954,7 +1973,7 @@ function buildRewardsGrid() {
   if (window._badgeRAFs) window._badgeRAFs.forEach(function(id){cancelAnimationFrame(id);});
   window._badgeRAFs = [];
   badgeSet.forEach(function(badge, i) {
-    const earned = completions[i];
+    const earned = badgePreviewAll ? true : completions[i];
     const div = document.createElement('div');
     div.className = 'reward-circle' + (earned ? ' earned' : '');
     div.style.cssText += ';background:#06060f;overflow:hidden;';
@@ -3304,46 +3323,70 @@ function animateBadge(canvas, badge, earned) {
       ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=14;
       ctx.fillText('LEVEL 9',W/2,12); ctx.restore();
 
-      // ── Epic Maestro — conducting baton, dramatic ──
+      // ── Epic Rockstar — wild white hair, sunglasses, guitar hero pose ──
       const baton=0.35*Math.sin(t*0.12); const kx=W/2, ky=H*0.39;
-      // Tailcoat
-      ctx.fillStyle='#08001e';
-      ctx.beginPath(); ctx.moveTo(kx-12,ky+4); ctx.lineTo(kx-19,ky+32); ctx.lineTo(kx-8,ky+20); ctx.lineTo(kx,ky+12); ctx.lineTo(kx+8,ky+20); ctx.lineTo(kx+19,ky+32); ctx.lineTo(kx+12,ky+4); ctx.closePath(); ctx.fill();
-      // White shirt front
-      ctx.fillStyle='#e0e0f0'; ctx.beginPath(); ctx.moveTo(kx-4,ky+4); ctx.lineTo(kx-2,ky+20); ctx.lineTo(kx,ky+12); ctx.lineTo(kx+2,ky+20); ctx.lineTo(kx+4,ky+4); ctx.closePath(); ctx.fill();
-      // Gold bow tie
-      ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.moveTo(kx-5,ky+2); ctx.lineTo(kx,ky+5); ctx.lineTo(kx+5,ky+2); ctx.lineTo(kx,ky-1); ctx.closePath(); ctx.fill();
+      // Leather jacket — deep black with purple sheen
+      ctx.fillStyle='#0a0014';
+      ctx.beginPath(); ctx.ellipse(kx,ky+10,13,15,0,0,Math.PI*2); ctx.fill();
+      // Jacket lapels with gold trim
+      ctx.fillStyle='#1a0030';
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+2); ctx.lineTo(kx-13,ky+18); ctx.lineTo(kx-6,ky+18); ctx.lineTo(kx,ky+8); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+2); ctx.lineTo(kx+13,ky+18); ctx.lineTo(kx+6,ky+18); ctx.lineTo(kx,ky+8); ctx.closePath(); ctx.fill();
+      // Gold chain
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      ctx.strokeStyle='rgba(255,215,0,0.85)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(kx,ky+8,4,0.3,Math.PI-0.3); ctx.stroke();
+      ctx.globalCompositeOperation='source-over'; ctx.restore();
       // Head
-      ctx.fillStyle='#d49060'; ctx.beginPath(); ctx.arc(kx,ky-12,9,0,Math.PI*2); ctx.fill();
-      // Silver conductor hair
-      ctx.fillStyle='#b0b0be';
-      ctx.beginPath(); ctx.ellipse(kx,ky-20,9,5,0,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(kx-8,ky-17,4,6,0.3,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(kx+8,ky-17,4,6,-0.3,0,Math.PI*2); ctx.fill();
-      // Intense eyes
-      ctx.fillStyle='#1a1a55'; ctx.beginPath(); ctx.arc(kx-3.5,ky-13,2.2,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(kx+3.5,ky-13,2.2,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(kx-3.8,ky-13.5,0.7,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(kx+3.2,ky-13.5,0.7,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#882200'; ctx.lineWidth=1.8;
-      ctx.beginPath(); ctx.arc(kx,ky-7,3.5,0.1,Math.PI-0.1); ctx.stroke();
-      // Conducting arm — baton pumping
-      ctx.strokeStyle='#d49060'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.fillStyle='#c8885a'; ctx.beginPath(); ctx.arc(kx,ky-12,9.5,0,Math.PI*2); ctx.fill();
+      // EPIC wild white spiky hair
+      const hairSpikes=[[0,-26,6,8],[-6,-24,5,7],[6,-24,5,7],[-11,-20,4,7],[11,-20,4,7],[-4,-27,3,6],[4,-27,3,6]];
+      ctx.fillStyle='#f0f0ff';
+      ctx.beginPath(); ctx.ellipse(kx,ky-22,11,6,-0.1,0,Math.PI*2); ctx.fill();
+      // Spiky points
+      [[0,-30],[-7,-28],[7,-28],[-12,-22],[12,-22],[-5,-29],[5,-29]].forEach(function([dx,dy]){
+        ctx.beginPath(); ctx.moveTo(kx+dx-3,ky+dy+6); ctx.lineTo(kx+dx,ky+dy); ctx.lineTo(kx+dx+3,ky+dy+6); ctx.fill();
+      });
+      // Cool dark sunglasses
+      ctx.fillStyle='#0a0a0a';
+      ctx.beginPath(); ctx.ellipse(kx-4,ky-13,4,2.8,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+4,ky-13,4,2.8,0,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#888'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(kx-0.5,ky-13); ctx.lineTo(kx+0.5,ky-13); ctx.stroke();
+      // Sunglasses sheen
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      ctx.fillStyle='rgba(100,150,255,0.3)';
+      ctx.beginPath(); ctx.ellipse(kx-5,ky-14,2,1.2,-0.3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+3,ky-14,2,1.2,-0.3,0,Math.PI*2); ctx.fill();
+      ctx.globalCompositeOperation='source-over'; ctx.restore();
+      // Frame bridge and arms
+      ctx.strokeStyle='#aaa'; ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(kx-9,ky-13); ctx.lineTo(kx-13,ky-12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+9,ky-13); ctx.lineTo(kx+13,ky-12); ctx.stroke();
+      // Rock on hand gesture — left arm raised
+      const armBob=5*Math.sin(t*0.1);
+      ctx.strokeStyle='#c8885a'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-10,ky+3); ctx.lineTo(kx-22,ky-10+armBob); ctx.stroke();
+      ctx.fillStyle='#c8885a'; ctx.beginPath(); ctx.arc(kx-22,ky-10+armBob,4,0,Math.PI*2); ctx.fill();
+      // Rock on fingers (index + pinky up)
+      ctx.strokeStyle='#c8885a'; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(kx-22,ky-13+armBob); ctx.lineTo(kx-21,ky-19+armBob); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx-22,ky-13+armBob); ctx.lineTo(kx-26,ky-19+armBob); ctx.stroke();
+      // Right arm — conducting baton with sparkle
+      ctx.strokeStyle='#c8885a'; ctx.lineWidth=5;
       const batonY=ky-10+7*Math.sin(t*0.12);
       ctx.beginPath(); ctx.moveTo(kx+9,ky+2); ctx.lineTo(kx+22,batonY); ctx.stroke();
       ctx.save(); ctx.translate(kx+22,batonY); ctx.rotate(baton-0.5);
       ctx.strokeStyle='#e8e4c0'; ctx.lineWidth=1.5;
       ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-18); ctx.stroke();
-      ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.arc(0,-18,2.5,0,Math.PI*2); ctx.fill();
-      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,215,0,0.6)'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=10;
-      ctx.beginPath(); ctx.arc(0,-18,5,0,Math.PI*2); ctx.fill(); ctx.restore();
+      ctx.fillStyle='#ff4488'; ctx.beginPath(); ctx.arc(0,-18,2.5,0,Math.PI*2); ctx.fill();
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,68,136,0.7)'; ctx.shadowColor='#ff4488'; ctx.shadowBlur=12;
+      ctx.beginPath(); ctx.arc(0,-18,6,0,Math.PI*2); ctx.fill(); ctx.restore();
       ctx.restore();
-      // Other arm
-      ctx.strokeStyle='#d49060'; ctx.lineWidth=5;
-      ctx.beginPath(); ctx.moveTo(kx-9,ky+2); ctx.lineTo(kx-22,ky+5+3*Math.cos(t*0.09)); ctx.stroke();
-      ctx.strokeStyle='#08001e'; ctx.lineWidth=6;
-      ctx.beginPath(); ctx.moveTo(kx-4,ky+22); ctx.lineTo(kx-5,ky+32); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(kx+4,ky+22); ctx.lineTo(kx+5,ky+32); ctx.stroke();
+      // Legs
+      ctx.strokeStyle='#0a0014'; ctx.lineWidth=6; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+24); ctx.lineTo(kx-5,ky+34); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+24); ctx.lineTo(kx+5,ky+34); ctx.stroke();
 
       // Firework orbs
       for(let f=0;f<7;f++){
@@ -5711,45 +5754,69 @@ function playInstrumentSound(id) {
         });
         break;
       }
-      case 8: { // Synthesiser — analog synth blues riff (Superstition-style E blues)
-        // E blues scale: E2=82.41 G2=98 A2=110 Bb2=116.54 B2=123.47 D3=146.83
-        // Riff: E  G  A  Bb  A  G  E  G  A  B  A — punchy Moog-style
-        const synthRiff=[
-          [82.41, 0,    0.14, 0.13],  // E2 bass stab
-          [98,    0.16, 0.08, 0.1 ],  // G2
-          [110,   0.25, 0.08, 0.1 ],  // A2
-          [116.54,0.34, 0.06, 0.08],  // Bb2 — blue note
-          [110,   0.41, 0.06, 0.08],  // A2
-          [98,    0.48, 0.06, 0.08],  // G2
-          [82.41, 0.55, 0.18, 0.18],  // E2 — back to root
-          [98,    0.76, 0.06, 0.08],  // G2
-          [110,   0.83, 0.06, 0.08],  // A2
-          [123.47,0.91, 0.06, 0.08],  // B2
-          [110,   0.98, 0.14, 0.55],  // A2 — ring out
-        ];
-        // Moog-style ladder filter — sweeps open on each note
-        const lad=ac.createBiquadFilter();lad.type='lowpass';lad.Q.value=9;
-        lad.frequency.setValueAtTime(180,now);
-        lad.frequency.linearRampToValueAtTime(1400,now+0.12);
-        lad.frequency.exponentialRampToValueAtTime(400,now+0.55);
-        lad.frequency.linearRampToValueAtTime(1800,now+0.75);
-        lad.frequency.exponentialRampToValueAtTime(350,now+1.6);
-        lad.connect(master);
-        synthRiff.forEach(([f,t,v,dur])=>{
-          const g=ac.createGain();g.connect(lad);
-          g.gain.setValueAtTime(0,now+t);g.gain.linearRampToValueAtTime(v,now+t+0.008);
-          g.gain.exponentialRampToValueAtTime(0.0001,now+t+dur);
-          // Two detuned oscillators (classic analog fatness)
-          [f, f*1.006].forEach(freq=>{
-            const o=ac.createOscillator();o.setPeriodicWave(wKeytar);o.frequency.value=freq;
-            o.connect(g);o.start(now+t);o.stop(now+t+dur+0.05);
+      case 8: { // Synthesiser — Axel Foley-style cinematic synth fanfare
+        // Iconic ascending synth stab pattern with fat bass and sparkle top
+        const ac2 = ac;
+        const now2 = now;
+
+        // Fat bass synth — pulsing root note
+        const bassFreqs = [82.41, 82.41, 110, 82.41];
+        const bassTimes = [0, 0.18, 0.36, 0.55];
+        bassFreqs.forEach((f, i) => {
+          const bg = ac2.createGain();
+          const bf = ac2.createBiquadFilter(); bf.type='lowpass'; bf.Q.value=6;
+          bf.frequency.setValueAtTime(300, now2+bassTimes[i]);
+          bf.frequency.linearRampToValueAtTime(900, now2+bassTimes[i]+0.08);
+          bf.frequency.exponentialRampToValueAtTime(250, now2+bassTimes[i]+0.22);
+          bg.connect(bf); bf.connect(master);
+          bg.gain.setValueAtTime(0, now2+bassTimes[i]);
+          bg.gain.linearRampToValueAtTime(0.22, now2+bassTimes[i]+0.01);
+          bg.gain.exponentialRampToValueAtTime(0.0001, now2+bassTimes[i]+0.25);
+          [f, f*1.004, f*0.5].forEach(freq => {
+            const o = ac2.createOscillator(); o.setPeriodicWave(wKeytar);
+            o.frequency.value = freq; o.connect(bg);
+            o.start(now2+bassTimes[i]); o.stop(now2+bassTimes[i]+0.3);
           });
-          // Sub oscillator one octave down
-          const sub=ac.createOscillator();sub.type='sine';sub.frequency.value=f*0.5;
-          const subG=ac.createGain();subG.gain.value=0.4;
-          sub.connect(subG);subG.connect(lad);
-          sub.start(now+t);sub.stop(now+t+dur+0.05);
         });
+
+        // Rising synth melody stabs — the Axel Foley hook rhythm
+        const melody = [
+          [330, 0.72, 0.16],   // E4
+          [370, 0.90, 0.10],   // F#4
+          [440, 1.02, 0.10],   // A4
+          [494, 1.14, 0.10],   // B4
+          [587, 1.26, 0.28],   // D5 — peak
+          [523, 1.56, 0.12],   // C5
+          [659, 1.70, 0.55],   // E5 — big ring out
+        ];
+        melody.forEach(([f, startT, dur]) => {
+          const mg = ac2.createGain();
+          const mf = ac2.createBiquadFilter(); mf.type='bandpass'; mf.Q.value=2;
+          mf.frequency.value = f * 1.8;
+          mg.connect(mf); mf.connect(master);
+          mg.gain.setValueAtTime(0, now2+startT);
+          mg.gain.linearRampToValueAtTime(0.18, now2+startT+0.012);
+          mg.gain.exponentialRampToValueAtTime(0.0001, now2+startT+dur+0.1);
+          [f, f*1.008, f*2].forEach(freq => {
+            const o = ac2.createOscillator(); o.setPeriodicWave(wKeytar);
+            o.frequency.value = freq; o.connect(mg);
+            o.start(now2+startT); o.stop(now2+startT+dur+0.15);
+          });
+        });
+
+        // Sparkly high synth pad — shimmer on top
+        const padFreqs = [1318, 1397, 1568, 1760];
+        padFreqs.forEach((f, i) => {
+          const pg = ac2.createGain();
+          pg.connect(master);
+          pg.gain.setValueAtTime(0, now2+1.2+i*0.05);
+          pg.gain.linearRampToValueAtTime(0.04, now2+1.3+i*0.05);
+          pg.gain.exponentialRampToValueAtTime(0.0001, now2+2.4);
+          const o = ac2.createOscillator(); o.type='sine';
+          o.frequency.value = f; o.connect(pg);
+          o.start(now2+1.2+i*0.05); o.stop(now2+2.5);
+        });
+
         break;
       }
       case 9: { // Trumpet — bright fanfare phrase
@@ -7008,6 +7075,7 @@ window.endGame           = endGame;
 window.goMenu            = goMenu;
 window.showRewards       = showRewards;
 window.switchBadgeTab    = switchBadgeTab;
+window.handleBadgeTabTap = handleBadgeTabTap;
 window.showNoteGuide     = showNoteGuide;
 window.showHTP           = showHTP;
 window.selectInput       = selectInput;
