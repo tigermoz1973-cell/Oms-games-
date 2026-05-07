@@ -1058,8 +1058,12 @@
     <h2>🏆 My Rewards</h2>
     <p>Complete each level in Survival mode to earn a badge</p>
   </div>
+  <div class="collectibles-tabs" style="margin-bottom:14px">
+    <button class="coll-tab active" id="badge-tab-letters" onclick="switchBadgeTab('letters')">🔤 Note Names</button>
+    <button class="coll-tab" id="badge-tab-piano" onclick="switchBadgeTab('piano')">🎹 Piano</button>
+  </div>
   <div class="rewards-tally">
-    <span id="rewards-count">0</span><small> / 9 levels completed</small>
+    <span id="rewards-count">0</span><small id="rewards-tally-label"> / 9 levels completed</small>
   </div>
   <div class="rewards-grid" id="rewards-grid"></div>
 
@@ -1277,6 +1281,7 @@ async function loadProgressFromFirebase(code) {
       const d = snap.data();
       try {
         if (d.completions)           localStorage.setItem('noteReaderCompletions', JSON.stringify(d.completions));
+        if (d.completions_piano)     localStorage.setItem('noteReaderCompletions_piano', JSON.stringify(d.completions_piano));
         if (d.collectibles_letters)  localStorage.setItem('noteGuruCollectibles_letters', JSON.stringify(d.collectibles_letters));
         if (d.collectibles_piano)    localStorage.setItem('noteGuruCollectibles_piano', JSON.stringify(d.collectibles_piano));
         if (d.secretAward)           localStorage.setItem('noteGuruSecretAward', '1');
@@ -1302,12 +1307,14 @@ async function saveProgressField(code, fields) {
 async function saveFullProgress(code, extraFields) {
   if (!_db || !code) return;
   try {
-    const completions = JSON.parse(localStorage.getItem('noteReaderCompletions') || '[false,false,false,false,false,false,false,false,false]');
-    const cLetters    = JSON.parse(localStorage.getItem('noteGuruCollectibles_letters') || '[false,false,false,false,false,false,false,false,false]');
-    const cPiano      = JSON.parse(localStorage.getItem('noteGuruCollectibles_piano') || '[false,false,false,false,false,false,false,false,false]');
+    const completions      = JSON.parse(localStorage.getItem('noteReaderCompletions') || '[false,false,false,false,false,false,false,false,false]');
+    const completions_piano= JSON.parse(localStorage.getItem('noteReaderCompletions_piano') || '[false,false,false,false,false,false,false,false,false]');
+    const cLetters         = JSON.parse(localStorage.getItem('noteGuruCollectibles_letters') || '[false,false,false,false,false,false,false,false,false]');
+    const cPiano           = JSON.parse(localStorage.getItem('noteGuruCollectibles_piano') || '[false,false,false,false,false,false,false,false,false]');
     const secretAward = !!localStorage.getItem('noteGuruSecretAward');
     await saveProgressField(code, {
       completions,
+      completions_piano,
       collectibles_letters: cLetters,
       collectibles_piano: cPiano,
       secretAward,
@@ -1755,22 +1762,61 @@ const LEVEL_BADGES = [
   { name:'Note Guru Master',    color:'#ff4488', scene:'l9',   title:'Level 9' },
 ];
 
+const PIANO_BADGES = [
+  { name:'First Notes',         color:'#4fc3f7', scene:'acoustic',  title:'Level 1', sceneSet:'piano' },
+  { name:'Note Spotter',        color:'#ef5350', scene:'drums',     title:'Level 2', sceneSet:'piano' },
+  { name:'Treble Clef Scout',   color:'#66bb6a', scene:'sax',      title:'Level 3', sceneSet:'piano' },
+  { name:'Staff Reader',        color:'#ab47bc', scene:'keys',     title:'Level 4', sceneSet:'piano' },
+  { name:'Bass Explorer',       color:'#ffa726', scene:'bass',     title:'Level 5', sceneSet:'piano' },
+  { name:'Grand Staff Climber', color:'#ec407a', scene:'singer',   title:'Level 6', sceneSet:'piano' },
+  { name:'Sharp Eye',           color:'#26c6da', scene:'guitar',   title:'Level 7', sceneSet:'piano' },
+  { name:'Music Scholar',       color:'#ffee58', scene:'trumpet',  title:'Level 8', sceneSet:'piano' },
+  { name:'Note Guru Master',    color:'#ff4488', scene:'fullband', title:'Level 9', sceneSet:'piano' },
+];
+
 // Completions stored as array of 9 booleans in localStorage
-function getCompletions() {
+function getCompletions(mode) {
+  const key = (mode === 'piano') ? 'noteReaderCompletions_piano' : 'noteReaderCompletions';
   try {
-    const s = localStorage.getItem('noteReaderCompletions');
+    const s = localStorage.getItem(key);
     if (s) return JSON.parse(s);
   } catch(e) {}
   return [false,false,false,false,false,false,false,false,false];
 }
 
-function setLevelComplete(levelIndex) {
-  const c = getCompletions();
+function setLevelComplete(levelIndex, mode) {
+  const key = (mode === 'piano') ? 'noteReaderCompletions_piano' : 'noteReaderCompletions';
+  const c = getCompletions(mode);
   c[levelIndex] = true;
-  try { localStorage.setItem('noteReaderCompletions', JSON.stringify(c)); } catch(e) {}
+  try { localStorage.setItem(key, JSON.stringify(c)); } catch(e) {}
   // Sync to Firebase
-  if (_playerCode) saveProgressField(_playerCode, { completions: c });
+  if (_playerCode) {
+    const field = (mode === 'piano') ? { completions_piano: c } : { completions: c };
+    saveProgressField(_playerCode, field);
+  }
 }
+
+// ── Badge tab state ──
+let currentBadgeTab = 'letters';
+
+function switchBadgeTab(mode) {
+  currentBadgeTab = mode;
+  document.getElementById('badge-tab-letters').classList.toggle('active', mode === 'letters');
+  document.getElementById('badge-tab-piano').classList.toggle('active', mode === 'piano');
+  buildRewardsGrid();
+}
+
+// Add touchstart handlers for badge tabs (mobile fix)
+(function() {
+  ['badge-tab-letters','badge-tab-piano'].forEach(function(id) {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      switchBadgeTab(id === 'badge-tab-piano' ? 'piano' : 'letters');
+    }, { passive: false });
+  });
+})();
 
 // ─── Celebration Screen ───
 let celebFireworksRAF = null;
@@ -1780,9 +1826,11 @@ function showCelebration(levelIndex) {
   clearInterval(timerInterval);
   clearSurvivalTimer();
 
-  setLevelComplete(levelIndex);
+  const isPiano = (inputMode === 'piano');
+  setLevelComplete(levelIndex, isPiano ? 'piano' : 'letters');
+  currentBadgeTab = isPiano ? 'piano' : 'letters';
 
-  const badge  = LEVEL_BADGES[levelIndex];
+  const badge = isPiano ? PIANO_BADGES[levelIndex] : LEVEL_BADGES[levelIndex];
   const screen = document.getElementById('celebration-screen');
 
   document.getElementById('celeb-title').textContent = 'CONGRATULATIONS!';
@@ -1890,15 +1938,22 @@ function showRewards() {
 }
 
 function buildRewardsGrid() {
+  const isPiano = currentBadgeTab === 'piano';
+  const badgeSet = isPiano ? PIANO_BADGES : LEVEL_BADGES;
   const grid = document.getElementById('rewards-grid');
-  const completions = getCompletions();
+  const completions = getCompletions(isPiano ? 'piano' : 'letters');
   const count = completions.filter(Boolean).length;
   document.getElementById('rewards-count').textContent = count;
+  // Update tab active states
+  const btl = document.getElementById('badge-tab-letters');
+  const btp = document.getElementById('badge-tab-piano');
+  if (btl) btl.classList.toggle('active', !isPiano);
+  if (btp) btp.classList.toggle('active', isPiano);
   grid.innerHTML = '';
   // Cancel any previous badge animation loops
   if (window._badgeRAFs) window._badgeRAFs.forEach(function(id){cancelAnimationFrame(id);});
   window._badgeRAFs = [];
-  LEVEL_BADGES.forEach(function(badge, i) {
+  badgeSet.forEach(function(badge, i) {
     const earned = completions[i];
     const div = document.createElement('div');
     div.className = 'reward-circle' + (earned ? ' earned' : '');
@@ -2444,14 +2499,897 @@ function animateBadge(canvas, badge, earned) {
     fullband: function() { scenes.l9(); },
 
   };
+  const pianoScenes = {
+    acoustic: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg1=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg1.addColorStop(0,'#0a0c22'); bg1.addColorStop(1,'#010208');
+      ctx.fillStyle=bg1; ctx.fillRect(0,0,W,H);
+
+      // Stars
+      for(let s=0;s<20;s++){
+        const sx=(s*43+9)%W, sy=(s*31+5)%(H*0.82);
+        const sa=0.2+0.4*Math.abs(Math.sin(t*0.04+s*0.8));
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.fillStyle=`rgba(180,200,255,${sa})`; ctx.beginPath(); ctx.arc(sx,sy,0.7,0,Math.PI*2); ctx.fill(); ctx.restore();
+      }
+
+      // ── PROPER STAGE SPOTLIGHT — cone from top, narrow at source, wide pool at bottom ──
+      // The spot origin sweeps left-right at the top, the pool follows the character
+      const kx1=W/2, ky1=H*0.41;
+      const spotOriginX = W*0.5 + Math.sin(t*0.028)*W*0.35; // source moves at top
+      const poolX = kx1 + Math.sin(t*0.028)*10; // pool follows character below
+      const poolY = H*0.75;
+      const poolRad = W*0.38; // wide pool at stage floor
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      // Draw the cone as a clipped triangle gradient
+      ctx.beginPath();
+      ctx.moveTo(spotOriginX, 0);           // narrow point at top
+      ctx.lineTo(poolX - poolRad, poolY);   // wide left at bottom
+      ctx.lineTo(poolX + poolRad, poolY);   // wide right at bottom
+      ctx.closePath();
+      const coneGrad = ctx.createLinearGradient(spotOriginX, 0, poolX, poolY);
+      coneGrad.addColorStop(0, 'rgba(255,255,220,0.55)');
+      coneGrad.addColorStop(0.3, 'rgba(255,255,200,0.18)');
+      coneGrad.addColorStop(1, 'rgba(255,255,180,0.0)');
+      ctx.fillStyle = coneGrad; ctx.fill();
+      // Pool of light at floor
+      const poolGrad = ctx.createRadialGradient(poolX, poolY, 0, poolX, poolY, poolRad);
+      poolGrad.addColorStop(0, 'rgba(255,255,200,0.22)');
+      poolGrad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = poolGrad; ctx.beginPath(); ctx.ellipse(poolX, poolY, poolRad, poolRad*0.3, 0, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+
+      // Strobe
+      if(Math.sin(t*0.18)>0.96){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 1',W/2,12); ctx.restore();
+
+      // ── Cool kid — proper proportions, no gross mouth ──
+      const bob=3*Math.sin(t*0.1);
+      const kx=kx1, ky=ky1+bob;
+      // Cool jacket/hoodie
+      ctx.fillStyle='#1a2244';
+      ctx.beginPath(); ctx.ellipse(kx,ky+10,10,13,0,0,Math.PI*2); ctx.fill();
+      // Hoodie pocket stripe
+      ctx.fillStyle='#2a3366';
+      ctx.beginPath(); ctx.roundRect(kx-6,ky+8,12,8,3); ctx.fill();
+      // Head
+      ctx.fillStyle='#e8aa70';
+      ctx.beginPath(); ctx.arc(kx,ky-11,10,0,Math.PI*2); ctx.fill();
+      // Cool hair — swept side
+      ctx.fillStyle='#2a1a08';
+      ctx.beginPath(); ctx.ellipse(kx+1,ky-20,10,5,-0.15,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx-7,ky-17,4,6,0.4,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+8,ky-18,5,4,-0.3,0,Math.PI*2); ctx.fill();
+      // Wide surprised eyes — no red mouth
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(kx-4,ky-12,3,3.2,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+4,ky-12,3,3.2,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#1a3a88'; ctx.beginPath(); ctx.arc(kx-4,ky-12,1.9,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+4,ky-12,1.9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(kx-4.3,ky-12.4,0.75,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+3.7,ky-12.4,0.75,0,Math.PI*2); ctx.fill();
+      // Raised eyebrows
+      ctx.strokeStyle='#5a3010'; ctx.lineWidth=1.5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-6.5,ky-16.5); ctx.quadraticCurveTo(kx-4,ky-18,kx-1.5,ky-16.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+1.5,ky-16.5); ctx.quadraticCurveTo(kx+4,ky-18,kx+6.5,ky-16.5); ctx.stroke();
+      // Small open mouth — just a subtle smile, not red
+      ctx.strokeStyle='#a06040'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(kx,ky-7,3,0.2,Math.PI-0.2); ctx.stroke();
+      // Arms — left waves, right points at key
+      const waveAngle=0.5*Math.sin(t*0.12);
+      ctx.strokeStyle='#e8aa70'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+3); ctx.lineTo(kx-20+waveAngle*5,ky-5+waveAngle*8); ctx.stroke();
+      const fingerBob=3*Math.sin(t*0.14);
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+3); ctx.lineTo(kx+22,ky+18+fingerBob); ctx.stroke();
+      ctx.fillStyle='#e8aa70'; ctx.beginPath(); ctx.arc(kx+22,ky+21+fingerBob,3,0,Math.PI*2); ctx.fill();
+      // Sparkle at fingertip
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const spk=0.5+0.5*Math.sin(t*0.18);
+      ctx.fillStyle=`rgba(255,240,80,${spk})`; ctx.shadowColor='#ffff00'; ctx.shadowBlur=8;
+      ctx.beginPath(); ctx.arc(kx+22,ky+21+fingerBob,4*spk,0,Math.PI*2); ctx.fill(); ctx.restore();
+      // Legs
+      ctx.strokeStyle='#1a2244'; ctx.lineWidth=6; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+22); ctx.lineTo(kx-5,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+22); ctx.lineTo(kx+6,ky+32); ctx.stroke();
+
+      // Floating note
+      const fn1x=W*0.18+6*Math.sin(t*0.05); const fn1y=H*0.28+5*Math.cos(t*0.04);
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=col; ctx.font='15px serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=8; ctx.fillText('♪',fn1x,fn1y); ctx.restore();
+
+      const kbT=H*0.72;
+      drawKeyboard(kbT,7,[3],col,0.7+0.3*Math.sin(t*0.14));
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('First Notes',W/2,kbT-4); ctx.restore();
+    },
+
+    // ── LEVEL 2: Note Spotter — two crossing stage spotlights, cool focused kid ──
+    drums: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg2=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg2.addColorStop(0,'#0a1020'); bg2.addColorStop(1,'#020408');
+      ctx.fillStyle=bg2; ctx.fillRect(0,0,W,H);
+
+      // ── TWO CROSSING STAGE SPOTLIGHTS ──
+      const kx2=W/2, poolY2=H*0.76;
+      const sp2aOrigin = W*0.2 + Math.sin(t*0.031)*W*0.15; // left spot source
+      const sp2bOrigin = W*0.8 + Math.cos(t*0.025)*W*0.15; // right spot source
+      const poolRad2 = W*0.28;
+      [
+        {ox: sp2aOrigin, col2:'rgba(255,240,160,0.45)', pcol:'rgba(255,235,140,0.18)'},
+        {ox: sp2bOrigin, col2:'rgba(160,220,255,0.45)', pcol:'rgba(140,210,255,0.18)'}
+      ].forEach(sp => {
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.beginPath();
+        ctx.moveTo(sp.ox, 0);
+        ctx.lineTo(kx2 - poolRad2, poolY2);
+        ctx.lineTo(kx2 + poolRad2, poolY2);
+        ctx.closePath();
+        const cg = ctx.createLinearGradient(sp.ox, 0, kx2, poolY2);
+        cg.addColorStop(0, sp.col2);
+        cg.addColorStop(0.35, sp.col2.replace('0.45','0.12'));
+        cg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = cg; ctx.fill();
+        const pg = ctx.createRadialGradient(kx2, poolY2, 0, kx2, poolY2, poolRad2);
+        pg.addColorStop(0, sp.pcol); pg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = pg; ctx.beginPath(); ctx.ellipse(kx2, poolY2, poolRad2, poolRad2*0.25, 0, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      });
+
+      // Strobe
+      if(Math.sin(t*0.2)>0.97){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,0.12)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+      // Staff lines floating
+      for(let l=0;l<5;l++){
+        const ly=H*0.13+l*4.5+1.5*Math.sin(t*0.03+l*0.5);
+        ctx.save(); ctx.strokeStyle='rgba(120,180,255,0.5)'; ctx.lineWidth=0.9;
+        ctx.beginPath(); ctx.moveTo(6,ly); ctx.lineTo(W-6,ly); ctx.stroke(); ctx.restore();
+      }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 2',W/2,12); ctx.restore();
+
+      // ── Cool focused kid — no gross mouth, proper look ──
+      const bob2=2*Math.sin(t*0.09); const tilt=0.07*Math.sin(t*0.07);
+      const kx=W/2, ky=H*0.42+bob2;
+      ctx.save(); ctx.translate(kx,ky); ctx.rotate(tilt);
+      // Body — cool dark hoodie
+      ctx.fillStyle='#1a3060'; ctx.beginPath(); ctx.ellipse(0,10,11,14,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#223375';
+      ctx.beginPath(); ctx.roundRect(-6,8,12,8,3); ctx.fill();
+      // Head
+      ctx.fillStyle='#e0a868'; ctx.beginPath(); ctx.arc(0,-12,10,0,Math.PI*2); ctx.fill();
+      // Cool hair swept forward — concentrating lean
+      ctx.fillStyle='#1a0c04';
+      ctx.beginPath(); ctx.ellipse(-1,-21,10,5,0.15,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-7,-17,4,6,0.45,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(4,-19,5,4,-0.2,0,Math.PI*2); ctx.fill();
+      // Squinting determined eyes — no mouth issue
+      ctx.strokeStyle='#3a2010'; ctx.lineWidth=2.2; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(-5.5,-12.5); ctx.quadraticCurveTo(-3,-14,-0.5,-12.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0.5,-12.5); ctx.quadraticCurveTo(3,-14,5.5,-12.5); ctx.stroke();
+      // Small pupils peeking under squint
+      ctx.fillStyle='#1a1a1a'; ctx.beginPath(); ctx.arc(-3,-12,1.2,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3,-12,1.2,0,Math.PI*2); ctx.fill();
+      // Determined thin line mouth — not red lips
+      ctx.strokeStyle='#8a5030'; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(-3,-7); ctx.lineTo(3,-7); ctx.stroke();
+      // Arms reaching to keyboard
+      ctx.restore();
+      const reach=3*Math.sin(t*0.1);
+      ctx.strokeStyle='#e0a868'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+4); ctx.quadraticCurveTo(kx-22,ky+14+reach,kx-19,ky+30); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+4); ctx.quadraticCurveTo(kx+22,ky+14-reach,kx+19,ky+30); ctx.stroke();
+      ctx.fillStyle='#e0a868'; ctx.beginPath(); ctx.arc(kx-19,ky+31,3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+19,ky+31,3,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#1a3060'; ctx.lineWidth=6; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+23); ctx.lineTo(kx-4,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+23); ctx.lineTo(kx+4,ky+32); ctx.stroke();
+
+      // Moving note on staff
+      const snx=(t*0.6)%(W-16)+8;
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=col;
+      ctx.beginPath(); ctx.ellipse(snx,H*0.15,4,3,-0.3,0,Math.PI*2); ctx.fill(); ctx.restore();
+
+      const seq=[0,2,4,6,5,3,1]; const si=Math.floor(t/30)%7;
+      const kbT2=H*0.72;
+      drawKeyboard(kbT2,7,[seq[si],(seq[si]+3)%7],col,1);
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Note Spotter',W/2,kbT2-4); ctx.restore();
+    },
+
+    // ── LEVEL 3: Treble Clef Scout — headphones kid, clef, moonballs, roaming beam ──
+    sax: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg3=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg3.addColorStop(0,'#0c0820'); bg3.addColorStop(1,'#030108');
+      ctx.fillStyle=bg3; ctx.fillRect(0,0,W,H);
+
+      // Roaming moonbeam sweeping
+      const mb3x=W*0.5+Math.sin(t*0.022)*W*0.44;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const mbg3=ctx.createRadialGradient(mb3x,-2,0,mb3x,H*0.58,H*0.75);
+      mbg3.addColorStop(0,'rgba(200,180,255,0.22)'); mbg3.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=mbg3; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Moonballs
+      for(let m=0;m<3;m++){
+        const mx=W*(0.15+m*0.35)+5*Math.sin(t*0.05+m*0.9);
+        const my=H*(0.1+0.15*Math.abs(Math.sin(t*0.07+m*0.7)));
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        const mg=ctx.createRadialGradient(mx-2,my-2,0,mx,my,8);
+        mg.addColorStop(0,'rgba(255,255,255,0.9)'); mg.addColorStop(0.3,col+'cc'); mg.addColorStop(1,col+'00');
+        ctx.fillStyle=mg; ctx.beginPath(); ctx.arc(mx,my,8,0,Math.PI*2); ctx.fill(); ctx.restore();
+      }
+
+      // Big treble clef floating, bobbing
+      const clefBob=5*Math.sin(t*0.05);
+      ctx.save(); ctx.globalAlpha=0.88+0.12*Math.sin(t*0.06); ctx.fillStyle=col;
+      ctx.font='40px Georgia,serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.shadowColor=col; ctx.shadowBlur=20;
+      ctx.fillText('𝄞',W*0.72,H*0.26+clefBob); ctx.restore();
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 3',W/2,12); ctx.restore();
+
+      // ── Kid with headphones — bopping side to side ──
+      const bop=4*Math.sin(t*0.1); const lean=0.1*Math.sin(t*0.1);
+      const kx=W*0.38, ky=H*0.43+bop*0.4;
+      ctx.save(); ctx.translate(kx,ky); ctx.rotate(lean);
+      ctx.fillStyle='#201840'; ctx.beginPath(); ctx.ellipse(0,10,11,14,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#d09070'; ctx.beginPath(); ctx.arc(0,-11,10,0,Math.PI*2); ctx.fill();
+      // Headphones
+      ctx.strokeStyle='#333'; ctx.lineWidth=3.5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(0,-13,12,Math.PI*1.05,Math.PI*1.95); ctx.stroke();
+      ctx.fillStyle='#222'; ctx.beginPath(); ctx.arc(-11,-11,5,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(11,-11,5,0,Math.PI*2); ctx.fill();
+      // Light on headphones pulsing
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const hp=0.5+0.5*Math.sin(t*0.15);
+      ctx.fillStyle=`rgba(0,200,255,${hp})`; ctx.beginPath(); ctx.arc(-11,-11,3,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=`rgba(255,50,200,${hp})`; ctx.beginPath(); ctx.arc(11,-11,3,0,Math.PI*2); ctx.fill(); ctx.restore();
+      // Closed happy eyes bouncing
+      ctx.strokeStyle='#442211'; ctx.lineWidth=2; ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(-3.5,-11,3,Math.PI*0.08,Math.PI*0.92); ctx.stroke();
+      ctx.beginPath(); ctx.arc(3.5,-11,3,Math.PI*0.08,Math.PI*0.92); ctx.stroke();
+      ctx.strokeStyle='#cc2244'; ctx.lineWidth=1.8;
+      ctx.beginPath(); ctx.arc(0,-6,3.5,0.15,Math.PI-0.15); ctx.stroke();
+      // Arms up and moving with music
+      ctx.strokeStyle='#d09070'; ctx.lineWidth=5; ctx.lineCap='round';
+      const lArm=5*Math.sin(t*0.1+0.5); const rArm=5*Math.sin(t*0.1);
+      ctx.beginPath(); ctx.moveTo(-9,4); ctx.lineTo(-18,-4+lArm); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(9,4); ctx.lineTo(18,-4-rArm); ctx.stroke();
+      ctx.strokeStyle='#1a1030'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(-4,22); ctx.lineTo(-4,32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(4,22); ctx.lineTo(4,32); ctx.stroke();
+      ctx.restore();
+
+      // Orbiting notes
+      for(let n=0;n<4;n++){
+        const ang=t*0.06+n*(Math.PI/2);
+        const nx=kx+Math.cos(ang)*32, ny=ky+Math.sin(ang)*18;
+        ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=col; ctx.font='12px serif'; ctx.textAlign='center';
+        ctx.shadowColor=col; ctx.shadowBlur=7; ctx.fillText(['♩','♪','♫','♬'][n],nx,ny); ctx.restore();
+      }
+
+      const kbT3=H*0.72;
+      drawKeyboard(kbT3,7,[Math.floor(t/40)%7],col,0.9);
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Treble Clef Scout',W/2,kbT3-4); ctx.restore();
+    },
+
+    // ── LEVEL 4: Staff Reader — cool sunglasses teen, confident sway ──
+    keys: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg4=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg4.addColorStop(0,'#080c1c'); bg4.addColorStop(1,'#020308');
+      ctx.fillStyle=bg4; ctx.fillRect(0,0,W,H);
+
+      // Blue roaming spotlight
+      const sp4x=W*0.5+Math.sin(t*0.024)*W*0.42;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const spg4=ctx.createRadialGradient(sp4x,-2,0,sp4x,H*0.55,H*0.72);
+      spg4.addColorStop(0,'rgba(80,160,255,0.25)'); spg4.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=spg4; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Strobe
+      if(Math.sin(t*0.19)>0.97){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,0.1)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+      // Staff lines with notes
+      for(let l=0;l<5;l++){
+        const ly=H*0.12+l*5+2*Math.sin(t*0.03+l*0.4);
+        ctx.save(); ctx.strokeStyle='rgba(100,160,255,0.45)'; ctx.lineWidth=0.9;
+        ctx.beginPath(); ctx.moveTo(6,ly); ctx.lineTo(W-6,ly); ctx.stroke(); ctx.restore();
+      }
+      drawClefGlyph(14,H*0.185,26,'#5b9bd5',0.7);
+      // Rainbow notes across staff
+      for(let n=0;n<3;n++){
+        const nx=(t*0.55+n*40)%(W-16)+8;
+        const ny=H*0.12+(n%5)*5;
+        ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=RAINBOW[n*2%7]; ctx.font='9px serif';
+        ctx.textAlign='center'; ctx.shadowColor=RAINBOW[n*2%7]; ctx.shadowBlur=5; ctx.fillText('♩',nx,ny); ctx.restore();
+      }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 4',W/2,12); ctx.restore();
+
+      // ── Cool teen — swaying with confidence ──
+      const sway=3*Math.sin(t*0.07); const lean4=0.06*Math.sin(t*0.07);
+      const kx=W/2+sway*0.4, ky=H*0.42;
+      ctx.save(); ctx.translate(kx,ky); ctx.rotate(lean4);
+      // Jacket
+      ctx.fillStyle='#1a1044';
+      ctx.beginPath(); ctx.ellipse(0,10,12,15,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#2a1860';
+      ctx.beginPath(); ctx.moveTo(-12,4); ctx.lineTo(-4,20); ctx.lineTo(0,10); ctx.lineTo(4,20); ctx.lineTo(12,4); ctx.closePath(); ctx.fill();
+      // Head
+      ctx.fillStyle='#d49060'; ctx.beginPath(); ctx.arc(0,-12,10,0,Math.PI*2); ctx.fill();
+      // Cool hair
+      ctx.fillStyle='#0a0a0a';
+      ctx.beginPath(); ctx.ellipse(0,-21,10,5,-0.05,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(6,-18,5,5,0.6,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-5,-19,4,4,-0.2,0,Math.PI*2); ctx.fill();
+      // Sunglasses
+      ctx.fillStyle='rgba(0,0,30,0.92)';
+      ctx.beginPath(); ctx.roundRect(-9,-15,7.5,5,2); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(1.5,-15,7.5,5,2); ctx.fill();
+      ctx.strokeStyle='#aaa'; ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(-1.5,-13); ctx.lineTo(1.5,-13); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-9,-13); ctx.lineTo(-13,-14); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(9,-13); ctx.lineTo(13,-14); ctx.stroke();
+      // Cool smirk
+      ctx.strokeStyle='#882211'; ctx.lineWidth=1.8;
+      ctx.beginPath(); ctx.arc(2,-7,3.5,0.4,Math.PI-0.9); ctx.stroke();
+      // Arms — one on hip, one playing cool
+      ctx.strokeStyle='#d49060'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(-9,4); ctx.lineTo(-16,14); ctx.lineTo(-13,22); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(9,4); ctx.lineTo(18,16); ctx.lineTo(17,26); ctx.stroke();
+      ctx.strokeStyle='#1a1044'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(-4,24); ctx.lineTo(-4,32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(4,24); ctx.lineTo(4,32); ctx.stroke();
+      ctx.restore();
+
+      const kbT4=H*0.72;
+      drawKeyboard(kbT4,7,[Math.floor(t/38)%7,(Math.floor(t/38)+2)%7],col,0.9);
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Staff Reader',W/2,kbT4-4); ctx.restore();
+    },
+
+    // ── LEVEL 5: Bass Explorer — teen, bass smoke, deep space, moonballs ──
+    bass: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg5=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg5.addColorStop(0,'#040410'); bg5.addColorStop(1,'#010106');
+      ctx.fillStyle=bg5; ctx.fillRect(0,0,W,H);
+
+      // Deep space stars
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(let s=0;s<28;s++){
+        const sx=(s*41+11)%W, sy=(s*29+5)%(H*0.82);
+        const sa=0.15+0.4*Math.abs(Math.sin(t*0.035+s*0.55));
+        ctx.fillStyle=`rgba(80,80,255,${sa})`; ctx.beginPath(); ctx.arc(sx,sy,0.6+Math.sin(s)*0.5,0,Math.PI*2); ctx.fill();
+      }
+      ctx.restore();
+
+      // Purple roaming spotlight
+      const sp5x=W*0.5+Math.sin(t*0.021)*W*0.44;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const spg5=ctx.createRadialGradient(sp5x,-2,0,sp5x,H*0.58,H*0.76);
+      spg5.addColorStop(0,'rgba(140,60,255,0.22)'); spg5.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=spg5; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Moonballs rising
+      for(let m=0;m<4;m++){
+        const mx=W*(0.12+m*0.25)+4*Math.sin(t*0.06+m);
+        const my=H*(0.2+0.22*Math.abs(Math.sin(t*0.055+m*0.8)));
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        const mbg=ctx.createRadialGradient(mx-2,my-2,0,mx,my,7+2*Math.sin(t*0.1+m));
+        mbg.addColorStop(0,'rgba(255,255,255,0.85)'); mbg.addColorStop(0.35,col+'cc'); mbg.addColorStop(1,col+'00');
+        ctx.fillStyle=mbg; ctx.beginPath(); ctx.arc(mx,my,7+2*Math.sin(t*0.1+m),0,Math.PI*2); ctx.fill(); ctx.restore();
+      }
+
+      // Bass clef rising like smoke — multiple fading copies
+      for(let b=0;b<3;b++){
+        const ba=(0.7-b*0.22)+0.08*Math.sin(t*0.05+b);
+        const by=H*0.18-b*16+4*Math.sin(t*0.05+b*1.3);
+        const bx=W*0.72+7*Math.sin(t*0.035+b*0.8);
+        ctx.save(); ctx.globalAlpha=ba; ctx.fillStyle=col; ctx.font=`${30-b*7}px Georgia,serif`;
+        ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.shadowColor=col; ctx.shadowBlur=12;
+        ctx.fillText('𝄢',bx,by); ctx.restore();
+      }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 5',W/2,12); ctx.restore();
+
+      // ── Teen — same but with glowing hands ──
+      const bob5=2*Math.sin(t*0.08); const kx=W*0.38, ky=H*0.43+bob5;
+      ctx.fillStyle='#0a0820'; ctx.beginPath(); ctx.ellipse(kx,ky+10,11,15,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#1e1040';
+      ctx.beginPath(); ctx.moveTo(kx-11,ky+5); ctx.lineTo(kx-4,ky+20); ctx.lineTo(kx,ky+10); ctx.lineTo(kx+4,ky+20); ctx.lineTo(kx+11,ky+5); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#c8906a'; ctx.beginPath(); ctx.arc(kx,ky-11,9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#0a0a0a';
+      ctx.beginPath(); ctx.ellipse(kx,ky-20,9,5,-0.1,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+5,ky-17,5,4,0.6,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(0,0,25,0.92)';
+      ctx.beginPath(); ctx.roundRect(kx-8,ky-15,7,5,2); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(kx+1,ky-15,7,5,2); ctx.fill();
+      ctx.strokeStyle='#999'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(kx-1,ky-13); ctx.lineTo(kx+1,ky-13); ctx.stroke();
+      ctx.strokeStyle='#883322'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(kx+2,ky-8,3.5,0.3,Math.PI-0.8); ctx.stroke();
+      ctx.strokeStyle='#c8906a'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+4); ctx.lineTo(kx-19,ky+18); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+4); ctx.lineTo(kx+19,ky+18); ctx.stroke();
+      // Glowing hands — colour shifts
+      const hCol=`hsl(${(t*3)%360},100%,65%)`;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      ctx.fillStyle=hCol+'88';
+      ctx.beginPath(); ctx.arc(kx-19,ky+20,6,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+19,ky+20,6,0,Math.PI*2); ctx.fill(); ctx.restore();
+      ctx.strokeStyle='#0a0820'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+24); ctx.lineTo(kx-4,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+24); ctx.lineTo(kx+4,ky+32); ctx.stroke();
+
+      const bLit=[Math.floor(t/50)%7,(Math.floor(t/50)+4)%7];
+      const kbT5=H*0.72;
+      drawKeyboard(kbT5,7,bLit,col,1);
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Bass Explorer',W/2,kbT5-4); ctx.restore();
+    },
+
+    // ── LEVEL 6: Grand Staff Climber — rockstar, flowing cape, gold everything ──
+    singer: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg6=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg6.addColorStop(0,'#140a00'); bg6.addColorStop(1,'#050200');
+      ctx.fillStyle=bg6; ctx.fillRect(0,0,W,H);
+
+      // Gold sweeping spotlight
+      const gX=W*0.5+Math.sin(t*0.026)*W*0.4;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const gsg=ctx.createRadialGradient(gX,-2,0,gX,H*0.52,H*0.78);
+      gsg.addColorStop(0,'rgba(255,220,0,0.28)'); gsg.addColorStop(0.4,'rgba(255,140,0,0.1)'); gsg.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=gsg; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Gold laser beams shooting up
+      for(let b=0;b<5;b++){
+        const bx=W*(0.08+b*0.21)+6*Math.sin(t*0.04+b*0.9);
+        const ba=0.22+0.12*Math.sin(t*0.05+b*0.8);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.strokeStyle=`rgba(255,210,0,${ba})`; ctx.lineWidth=1.5;
+        ctx.shadowColor='#ffd700'; ctx.shadowBlur=4;
+        ctx.beginPath(); ctx.moveTo(bx,H*0.70); ctx.lineTo(bx+12*Math.sin(b+t*0.02),0); ctx.stroke(); ctx.restore();
+      }
+
+      // Strobe flash
+      if(Math.sin(t*0.22)>0.97){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,220,0,0.12)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+      // Both staves
+      for(let l=0;l<5;l++){
+        ctx.save(); ctx.strokeStyle='rgba(255,195,60,0.4)'; ctx.lineWidth=0.8;
+        ctx.beginPath(); ctx.moveTo(6,H*0.12+l*4); ctx.lineTo(W-6,H*0.12+l*4); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(6,H*0.27+l*4); ctx.lineTo(W-6,H*0.27+l*4); ctx.stroke(); ctx.restore();
+      }
+      drawClefGlyph(13,H*0.18,22,'#e8c97e',0.75);
+      drawBassClef(13,H*0.31,18,'#f0a050',0.7);
+
+      ctx.save(); ctx.fillStyle='#ffd700'; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=12;
+      ctx.fillText('LEVEL 6',W/2,12); ctx.restore();
+
+      // ── Rockstar — cape flowing, fist pumping ──
+      const pump=6*Math.sin(t*0.12); const kx=W/2, ky=H*0.43;
+      // Cape — flowing and animated
+      const capeWave=5*Math.sin(t*0.08);
+      ctx.fillStyle='#7700aa';
+      ctx.beginPath(); ctx.moveTo(kx-10,ky-4);
+      ctx.quadraticCurveTo(kx-30,ky+8+capeWave,kx-22,ky+32+capeWave*0.7);
+      ctx.quadraticCurveTo(kx-12,ky+24,kx-8,ky+14); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#aa00dd';
+      ctx.beginPath(); ctx.moveTo(kx+10,ky-4);
+      ctx.quadraticCurveTo(kx+30,ky+8-capeWave,kx+24,ky+32-capeWave*0.7);
+      ctx.quadraticCurveTo(kx+14,ky+24,kx+8,ky+14); ctx.closePath(); ctx.fill();
+      // Cape inner lining
+      ctx.fillStyle='#ffdd00';
+      ctx.beginPath(); ctx.moveTo(kx-8,ky+8); ctx.quadraticCurveTo(kx-18,ky+18+capeWave*0.5,kx-14,ky+30); ctx.quadraticCurveTo(kx-10,ky+22,kx-6,ky+14); ctx.closePath(); ctx.fill();
+      // Body
+      ctx.fillStyle='#1a0040'; ctx.beginPath(); ctx.ellipse(kx,ky+10,11,14,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#f0f0f0'; ctx.beginPath(); ctx.moveTo(kx-4,ky+4); ctx.lineTo(kx-2,ky+20); ctx.lineTo(kx,ky+12); ctx.lineTo(kx+2,ky+20); ctx.lineTo(kx+4,ky+4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.moveTo(kx-4,ky+2); ctx.lineTo(kx,ky+5); ctx.lineTo(kx+4,ky+2); ctx.lineTo(kx,ky-1); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#d49060'; ctx.beginPath(); ctx.arc(kx,ky-12,9,0,Math.PI*2); ctx.fill();
+      // Rockstar hair — wild spiky
+      ctx.fillStyle='#111';
+      ctx.beginPath(); ctx.ellipse(kx,ky-21,10,5,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx-9,ky-18,4,8,0.45,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+9,ky-18,4,8,-0.45,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx,ky-27,3,5,0,0,Math.PI*2); ctx.fill();
+      // Grin with teeth
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(kx,ky-7.5,4.5,2.5,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#cc2200'; ctx.beginPath(); ctx.arc(kx,ky-8,4.5,0,Math.PI); ctx.fill();
+      ctx.fillStyle='#fff'; ctx.fillRect(kx-4,ky-10,8,2.5);
+      // Conducting arm — fist pumping
+      ctx.strokeStyle='#d49060'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+2); ctx.lineTo(kx-20,ky-8+pump); ctx.stroke();
+      ctx.fillStyle='#d49060'; ctx.beginPath(); ctx.arc(kx-20,ky-10+pump,4.5,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+2); ctx.lineTo(kx+18,ky+18); ctx.stroke();
+      ctx.strokeStyle='#1a0040'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+22); ctx.lineTo(kx-5,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+22); ctx.lineTo(kx+5,ky+32); ctx.stroke();
+
+      // Gold notes floating
+      for(let n=0;n<5;n++){
+        const nx=(t*0.8+n*34)%W; const ny=H*0.38+4*Math.sin(t*0.06+n*0.8);
+        ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,215,0,0.85)';
+        ctx.font='10px serif'; ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=6;
+        ctx.fillText(['♩','♪','♫','♬','♩'][n],nx,ny); ctx.restore();
+      }
+
+      const kbT6=H*0.72;
+      drawKeyboard(kbT6,7,[Math.floor(t/34)%7],'#ffd700',1);
+      ctx.save(); ctx.fillStyle='rgba(255,215,0,0.9)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=8;
+      ctx.fillText('Grand Staff Climber',W/2,kbT6-4); ctx.restore();
+    },
+
+    // ── LEVEL 7: Sharp Eye — psychedelic figure, lasers, strobes ──
+    guitar: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg7=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg7.addColorStop(0,'#050508'); bg7.addColorStop(1,'#010102');
+      ctx.fillStyle=bg7; ctx.fillRect(0,0,W,H);
+
+      // Psychedelic spinning colour wash
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(let r=0;r<7;r++){
+        const ang=t*0.035+r*(Math.PI*2/7);
+        const rc=hexRgb(RAINBOW[r]);
+        const rwg=ctx.createLinearGradient(W/2,H/2,W/2+Math.cos(ang)*W,H/2+Math.sin(ang)*H);
+        rwg.addColorStop(0,`rgba(${rc.r},${rc.g},${rc.b},0.1)`); rwg.addColorStop(1,`rgba(${rc.r},${rc.g},${rc.b},0)`);
+        ctx.fillStyle=rwg; ctx.fillRect(0,0,W,H);
+      }
+      ctx.restore();
+
+      // Fast roaming white spotlight
+      const sp7x=W*0.5+Math.sin(t*0.05)*W*0.46;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const spg7=ctx.createRadialGradient(sp7x,-2,0,sp7x,H*0.48,H*0.68);
+      spg7.addColorStop(0,'rgba(255,255,255,0.2)'); spg7.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=spg7; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Strobe
+      if(Math.sin(t*0.25)>0.95){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+      // Laser grid — criss-crossing
+      for(let l=0;l<6;l++){
+        const lx=W*(0.08+l*0.17); const la=0.28+0.18*Math.sin(t*0.07+l*0.9);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.strokeStyle=RAINBOW[l%7]+Math.floor(la*255).toString(16).padStart(2,'0');
+        ctx.lineWidth=1.2; ctx.shadowColor=RAINBOW[l%7]; ctx.shadowBlur=5;
+        ctx.beginPath(); ctx.moveTo(lx,H*0.68); ctx.lineTo(W*0.5+20*Math.sin(l),0); ctx.stroke(); ctx.restore();
+      }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 7',W/2,12); ctx.restore();
+
+      // ── Psychedelic figure — dancing, lasers from hands ──
+      const dance=5*Math.sin(t*0.11); const kx=W/2+dance*0.5, ky=H*0.42;
+      // Aura
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const aura=ctx.createRadialGradient(kx,ky,2,kx,ky,32);
+      aura.addColorStop(0,RAINBOW[Math.floor(t*0.09)%7]+'55'); aura.addColorStop(1,RAINBOW[Math.floor(t*0.09)%7]+'00');
+      ctx.fillStyle=aura; ctx.beginPath(); ctx.arc(kx,ky,32,0,Math.PI*2); ctx.fill(); ctx.restore();
+      // Body — psychedelic outfit
+      ctx.fillStyle='#0a0820'; ctx.beginPath(); ctx.ellipse(kx,ky+10,11,14,0,0,Math.PI*2); ctx.fill();
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(let p=0;p<5;p++){
+        const pc=RAINBOW[(Math.floor(t*0.07)+p)%7];
+        ctx.fillStyle=pc+'55'; ctx.beginPath(); ctx.ellipse(kx+(p-2)*4.5,ky+8,3,5,p*0.25,0,Math.PI*2); ctx.fill();
+      }
+      ctx.restore();
+      ctx.fillStyle='#c0806a'; ctx.beginPath(); ctx.arc(kx,ky-12,9,0,Math.PI*2); ctx.fill();
+      // Rainbow hair — colour shifts over time
+      const hcol=RAINBOW[Math.floor(t*0.06)%7];
+      ctx.fillStyle=hcol; ctx.beginPath(); ctx.ellipse(kx,ky-22,11,6,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx-11,ky-17,5,9,0.5,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+11,ky-17,5,9,-0.5,0,Math.PI*2); ctx.fill();
+      // Glowing eyes
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const eyc=RAINBOW[(Math.floor(t*0.09)+3)%7];
+      ctx.fillStyle=eyc; ctx.shadowColor=eyc; ctx.shadowBlur=10;
+      ctx.beginPath(); ctx.ellipse(kx-3.5,ky-12,2.8,2.2,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+3.5,ky-12,2.8,2.2,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+      // Huge grin
+      ctx.strokeStyle='#ff4488'; ctx.lineWidth=2; ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(kx,ky-7,4.5,0.1,Math.PI-0.1); ctx.stroke();
+      // Arms out wide — moving with dance
+      const lAx=kx-28+dance, rAx=kx+28-dance, aY=ky+6;
+      ctx.strokeStyle='#c0806a'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+3); ctx.lineTo(lAx,aY); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+3); ctx.lineTo(rAx,aY); ctx.stroke();
+      // Laser beams from both hands — sweeping
+      for(let l2=0;l2<4;l2++){
+        const lc2=RAINBOW[(Math.floor(t*0.1)+l2)%7];
+        const la2=0.6+0.3*Math.sin(t*0.12+l2);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.strokeStyle=lc2+Math.floor(la2*255).toString(16).padStart(2,'0');
+        ctx.lineWidth=1.5; ctx.shadowColor=lc2; ctx.shadowBlur=8;
+        ctx.beginPath(); ctx.moveTo(lAx,aY); ctx.lineTo(-10,H*(0.05+l2*0.12)+10*Math.sin(t*0.1+l2)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(rAx,aY); ctx.lineTo(W+10,H*(0.05+l2*0.12)-10*Math.sin(t*0.1+l2)); ctx.stroke(); ctx.restore();
+      }
+      ctx.strokeStyle='#0a0820'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+22); ctx.lineTo(kx-4,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+22); ctx.lineTo(kx+4,ky+32); ctx.stroke();
+
+      // Sharp symbols raining
+      for(let n=0;n<5;n++){
+        const nx=(t*0.75+n*38)%W; const ny=H*0.07+n*6+5*Math.sin(t*0.08+n);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.fillStyle=RAINBOW[n%7]; ctx.font='13px serif'; ctx.textAlign='center';
+        ctx.shadowColor=RAINBOW[n%7]; ctx.shadowBlur=7; ctx.fillText('♯',nx,ny); ctx.restore();
+      }
+
+      // Psychedelic keyboard
+      const kbT7=H*0.72; const wk7=(W-8)/7;
+      for(let k=0;k<7;k++){
+        const kc=RAINBOW[Math.floor(t*0.12+k*0.95)%7];
+        const kx2=4+k*wk7;
+        ctx.save(); ctx.shadowColor=kc; ctx.shadowBlur=14;
+        const kg=ctx.createLinearGradient(kx2,kbT7,kx2,H-4);
+        kg.addColorStop(0,kc); kg.addColorStop(1,kc+'33');
+        ctx.fillStyle=kg; ctx.beginPath(); ctx.roundRect(kx2+1,kbT7,wk7-2,H-kbT7-4,[0,0,4,4]); ctx.fill(); ctx.restore();
+      }
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Sharp Eye',W/2,kbT7-4); ctx.restore();
+    },
+
+    // ── LEVEL 8: Music Scholar — wizard, moonballs, notes swirling ──
+    trumpet: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg8=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg8.addColorStop(0,'#060418'); bg8.addColorStop(1,'#01000a');
+      ctx.fillStyle=bg8; ctx.fillRect(0,0,W,H);
+
+      // Roaming moonbeam
+      const mm8x=W*0.5+Math.sin(t*0.019)*W*0.44;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const mmg8=ctx.createRadialGradient(mm8x,-2,0,mm8x,H*0.56,H*0.76);
+      mmg8.addColorStop(0,'rgba(200,170,255,0.25)'); mmg8.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=mmg8; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Moonballs bouncing realistically
+      for(let m=0;m<5;m++){
+        const mx=W*(0.1+m*0.2)+5*Math.sin(t*0.05+m*0.8);
+        const bounce=Math.abs(Math.sin(t*0.07+m*0.65));
+        const my=H*(0.08+0.22*bounce);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        const mbg=ctx.createRadialGradient(mx-2,my-2,0,mx,my,7+2*bounce);
+        mbg.addColorStop(0,'rgba(255,255,255,0.9)'); mbg.addColorStop(0.3,RAINBOW[m%7]+'cc'); mbg.addColorStop(1,RAINBOW[m%7]+'00');
+        ctx.fillStyle=mbg; ctx.beginPath(); ctx.arc(mx,my,7+2*bounce,0,Math.PI*2); ctx.fill();
+        // Shadow under ball
+        ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(mx,H*0.32,(7+2*bounce)*(1-bounce*0.5),2,0,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 8',W/2,12); ctx.restore();
+
+      // ── Wizard — robe with stars, pointed hat, wand ──
+      const kx=W/2, ky=H*0.44; const wizSway=2*Math.sin(t*0.06);
+      ctx.save(); ctx.translate(kx+wizSway,ky);
+      // Robe
+      ctx.fillStyle='#180840';
+      ctx.beginPath(); ctx.moveTo(-14,4); ctx.lineTo(-16,30); ctx.lineTo(16,30); ctx.lineTo(14,4); ctx.closePath(); ctx.fill();
+      // Star pattern on robe
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,215,0,0.7)'; ctx.font='8px serif'; ctx.textAlign='center';
+      ctx.fillText('★',-5,14); ctx.fillText('✦',5,22); ctx.fillText('★',0,9); ctx.fillText('✦',-7,25); ctx.restore();
+      // Head
+      ctx.fillStyle='#d4a470'; ctx.beginPath(); ctx.arc(0,-11,10,0,Math.PI*2); ctx.fill();
+      // Wizard hat
+      ctx.fillStyle='#180840';
+      ctx.beginPath(); ctx.moveTo(-11,-18); ctx.lineTo(0,-38); ctx.lineTo(11,-18); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(0,-18,13,4.5,0,0,Math.PI*2); ctx.fill();
+      // Stars on hat
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,215,0,0.9)'; ctx.font='8px serif'; ctx.textAlign='center';
+      ctx.fillText('★',0,-30); ctx.restore();
+      // Round spectacles
+      ctx.strokeStyle='#aaa'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(-4,-12,3.5,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(4,-12,3.5,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-0.5,-12); ctx.lineTo(0.5,-12); ctx.stroke();
+      ctx.fillStyle='#3355cc'; ctx.beginPath(); ctx.arc(-4,-12,2,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(4,-12,2,0,Math.PI*2); ctx.fill();
+      // Wise smile
+      ctx.strokeStyle='#884422'; ctx.lineWidth=1.8;
+      ctx.beginPath(); ctx.arc(0,-6,3.5,0.2,Math.PI-0.2); ctx.stroke();
+      // Wand with glowing clef
+      const wandRaise=5*Math.sin(t*0.07);
+      ctx.strokeStyle='#8b6030'; ctx.lineWidth=2.5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(12,28); ctx.lineTo(12,-7+wandRaise); ctx.stroke();
+      ctx.save(); ctx.globalAlpha=0.92; ctx.fillStyle='#ffd700'; ctx.font='18px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=14;
+      ctx.fillText('𝄞',12,-14+wandRaise); ctx.restore();
+      // Left arm outstretched
+      ctx.strokeStyle='#d4a470'; ctx.lineWidth=4.5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(-9,4); ctx.lineTo(-17,15); ctx.stroke();
+      ctx.restore(); // end wizard translate
+
+      // Notes swirling around wizard
+      for(let n=0;n<7;n++){
+        const ang=t*0.05+n*(Math.PI*2/7);
+        const nx=kx+Math.cos(ang)*35; const ny=ky+Math.sin(ang)*20;
+        ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=RAINBOW[n%7];
+        ctx.font='12px serif'; ctx.textAlign='center'; ctx.shadowColor=RAINBOW[n%7]; ctx.shadowBlur=6;
+        ctx.fillText(['♩','♪','♫','♬'][n%4],nx,ny); ctx.restore();
+      }
+
+      // Rainbow keyboard
+      const kbT8=H*0.72; const wk8=(W-8)/7;
+      for(let k=0;k<7;k++){
+        const kc2=RAINBOW[Math.floor(t*0.07+k*0.6)%7];
+        const kx3=4+k*wk8; const glit=0.55+0.45*Math.sin(t*0.09+k*0.85);
+        ctx.save(); ctx.shadowColor=kc2; ctx.shadowBlur=11*glit;
+        const kg2=ctx.createLinearGradient(kx3,kbT8,kx3,H-4);
+        kg2.addColorStop(0,kc2+Math.floor(glit*255).toString(16).padStart(2,'0')); kg2.addColorStop(1,kc2+'11');
+        ctx.fillStyle=kg2; ctx.beginPath(); ctx.roundRect(kx3+1,kbT8,wk8-2,H-kbT8-4,[0,0,4,4]); ctx.fill(); ctx.restore();
+      }
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Music Scholar',W/2,kbT8-4); ctx.restore();
+    },
+
+    // ── LEVEL 9: Note Guru Master — maestro, crowd, lasers, everything ──
+    fullband: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg9=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg9.addColorStop(0,'#020206'); bg9.addColorStop(1,'#000001');
+      ctx.fillStyle=bg9; ctx.fillRect(0,0,W,H);
+
+      // Spinning colour wheel background
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(let r=0;r<7;r++){
+        const ang=t*0.028+r*(Math.PI*2/7);
+        const rc=hexRgb(RAINBOW[r]);
+        const rwg=ctx.createLinearGradient(W/2,H/2,W/2+Math.cos(ang)*W,H/2+Math.sin(ang)*H);
+        rwg.addColorStop(0,`rgba(${rc.r},${rc.g},${rc.b},0.11)`); rwg.addColorStop(1,`rgba(${rc.r},${rc.g},${rc.b},0)`);
+        ctx.fillStyle=rwg; ctx.fillRect(0,0,W,H);
+      }
+      ctx.restore();
+
+      // Epic roaming spotlight
+      const sp9x=W*0.5+Math.sin(t*0.035)*W*0.42;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const spg9=ctx.createRadialGradient(sp9x,-2,0,sp9x,H*0.44,H*0.72);
+      spg9.addColorStop(0,'rgba(255,255,255,0.28)'); spg9.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=spg9; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Strobe
+      if(Math.sin(t*0.28)>0.96){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+      // Laser grid — all directions
+      for(let l=0;l<6;l++){
+        const lx=W*(0.08+l*0.17); const la=0.25+0.15*Math.sin(t*0.07+l*0.9);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.strokeStyle=RAINBOW[l%7]+Math.floor(la*255).toString(16).padStart(2,'0');
+        ctx.lineWidth=1.3; ctx.shadowColor=RAINBOW[l%7]; ctx.shadowBlur=5;
+        ctx.beginPath(); ctx.moveTo(lx,H*0.65); ctx.lineTo(W/2+22*Math.sin(l+t*0.02),0); ctx.stroke(); ctx.restore();
+      }
+
+      // Mini crowd
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(let c=0;c<13;c++){
+        const cx=6+c*13.5; const bob=2.5*Math.sin(t*0.1+c*0.7);
+        const cc=RAINBOW[c%7];
+        ctx.fillStyle=cc+'88'; ctx.beginPath(); ctx.arc(cx,H*0.60+bob,2.8,0,Math.PI*2); ctx.fill();
+        ctx.fillRect(cx-2,H*0.60+bob+3,4,5);
+        if(Math.sin(t*0.08+c)>0.3){ ctx.beginPath(); ctx.arc(cx-3,H*0.58+bob,1.5,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(cx+3,H*0.58+bob,1.5,0,Math.PI*2); ctx.fill(); }
+      }
+      ctx.restore();
+
+      ctx.save(); ctx.fillStyle='#ffd700'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=14;
+      ctx.fillText('LEVEL 9',W/2,12); ctx.restore();
+
+      // ── Epic Maestro — conducting baton, dramatic ──
+      const baton=0.35*Math.sin(t*0.12); const kx=W/2, ky=H*0.39;
+      // Tailcoat
+      ctx.fillStyle='#08001e';
+      ctx.beginPath(); ctx.moveTo(kx-12,ky+4); ctx.lineTo(kx-19,ky+32); ctx.lineTo(kx-8,ky+20); ctx.lineTo(kx,ky+12); ctx.lineTo(kx+8,ky+20); ctx.lineTo(kx+19,ky+32); ctx.lineTo(kx+12,ky+4); ctx.closePath(); ctx.fill();
+      // White shirt front
+      ctx.fillStyle='#e0e0f0'; ctx.beginPath(); ctx.moveTo(kx-4,ky+4); ctx.lineTo(kx-2,ky+20); ctx.lineTo(kx,ky+12); ctx.lineTo(kx+2,ky+20); ctx.lineTo(kx+4,ky+4); ctx.closePath(); ctx.fill();
+      // Gold bow tie
+      ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.moveTo(kx-5,ky+2); ctx.lineTo(kx,ky+5); ctx.lineTo(kx+5,ky+2); ctx.lineTo(kx,ky-1); ctx.closePath(); ctx.fill();
+      // Head
+      ctx.fillStyle='#d49060'; ctx.beginPath(); ctx.arc(kx,ky-12,9,0,Math.PI*2); ctx.fill();
+      // Silver conductor hair
+      ctx.fillStyle='#b0b0be';
+      ctx.beginPath(); ctx.ellipse(kx,ky-20,9,5,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx-8,ky-17,4,6,0.3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+8,ky-17,4,6,-0.3,0,Math.PI*2); ctx.fill();
+      // Intense eyes
+      ctx.fillStyle='#1a1a55'; ctx.beginPath(); ctx.arc(kx-3.5,ky-13,2.2,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+3.5,ky-13,2.2,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(kx-3.8,ky-13.5,0.7,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+3.2,ky-13.5,0.7,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#882200'; ctx.lineWidth=1.8;
+      ctx.beginPath(); ctx.arc(kx,ky-7,3.5,0.1,Math.PI-0.1); ctx.stroke();
+      // Conducting arm — baton pumping
+      ctx.strokeStyle='#d49060'; ctx.lineWidth=5; ctx.lineCap='round';
+      const batonY=ky-10+7*Math.sin(t*0.12);
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+2); ctx.lineTo(kx+22,batonY); ctx.stroke();
+      ctx.save(); ctx.translate(kx+22,batonY); ctx.rotate(baton-0.5);
+      ctx.strokeStyle='#e8e4c0'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-18); ctx.stroke();
+      ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.arc(0,-18,2.5,0,Math.PI*2); ctx.fill();
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,215,0,0.6)'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=10;
+      ctx.beginPath(); ctx.arc(0,-18,5,0,Math.PI*2); ctx.fill(); ctx.restore();
+      ctx.restore();
+      // Other arm
+      ctx.strokeStyle='#d49060'; ctx.lineWidth=5;
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+2); ctx.lineTo(kx-22,ky+5+3*Math.cos(t*0.09)); ctx.stroke();
+      ctx.strokeStyle='#08001e'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+22); ctx.lineTo(kx-5,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+22); ctx.lineTo(kx+5,ky+32); ctx.stroke();
+
+      // Firework orbs
+      for(let f=0;f<7;f++){
+        const fa=t*0.09+f*(Math.PI*2/7); const fd=24+14*Math.sin(t*0.11+f*0.7);
+        const fx=W/2+Math.cos(fa)*fd; const fy=H*0.27+Math.sin(fa)*fd*0.5;
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        const og=ctx.createRadialGradient(fx,fy,0,fx,fy,6+2*Math.sin(t*0.13+f));
+        og.addColorStop(0,'rgba(255,255,255,0.9)'); og.addColorStop(0.4,RAINBOW[f%7]+'cc'); og.addColorStop(1,RAINBOW[f%7]+'00');
+        ctx.fillStyle=og; ctx.beginPath(); ctx.arc(fx,fy,6+2*Math.sin(t*0.13+f),0,Math.PI*2); ctx.fill(); ctx.restore();
+      }
+
+      // Cascading notes
+      for(let n=0;n<8;n++){
+        const nx=W*0.03+n*(W*0.13); const ny=((t*1.8+n*24)%(H*0.5))+4;
+        ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=RAINBOW[n%7]; ctx.font='12px serif'; ctx.textAlign='center';
+        ctx.shadowColor=RAINBOW[n%7]; ctx.shadowBlur=7; ctx.fillText(['♩','♪','♫','♬'][n%4],nx,ny); ctx.restore();
+      }
+
+      // Epic blazing keyboard
+      const kbT9=H*0.67; const wk9=(W-8)/7;
+      for(let k=0;k<7;k++){
+        const kc=RAINBOW[Math.floor(t*0.16+k*1.05)%7];
+        const kx2=4+k*wk9; const pulse=0.65+0.35*Math.sin(t*0.15+k*0.95);
+        ctx.save(); ctx.shadowColor=kc; ctx.shadowBlur=22*pulse;
+        const kg=ctx.createLinearGradient(kx2,kbT9,kx2,H-4);
+        kg.addColorStop(0,kc); kg.addColorStop(0.45,kc+'cc'); kg.addColorStop(1,kc+'11');
+        ctx.fillStyle=kg; ctx.beginPath(); ctx.roundRect(kx2+1,kbT9,wk9-2,H-kbT9-4,[0,0,4,4]); ctx.fill();
+        ctx.fillStyle=`rgba(255,255,255,${pulse*0.5})`; ctx.beginPath(); ctx.roundRect(kx2+2,kbT9,wk9-4,3,[1,1,0,0]); ctx.fill(); ctx.restore();
+      }
+      ctx.save(); ctx.fillStyle='rgba(255,215,0,0.95)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=10;
+      ctx.fillText('Note Guru Master',W/2,kbT9-4); ctx.restore();
+    },
+
+ 
+  };
+
 
 
 
 
   function frame() {
+    const sceneLib = badge.sceneSet === 'piano' ? pianoScenes : scenes;
     if (earned) {
       // Full colour animated scene
-      const scene = scenes[badge.scene];
+      const scene = sceneLib[badge.scene];
       if (scene) scene();
     } else {
       // Dark silhouette — render scene then desaturate + darken via compositing
@@ -2460,7 +3398,7 @@ function animateBadge(canvas, badge, earned) {
       ctx.fillStyle = '#080810';
       ctx.fillRect(0, 0, W, H);
       // Draw scene into offscreen then composite as silhouette
-      const scene = scenes[badge.scene];
+      const scene = sceneLib[badge.scene];
       if (scene) {
         // Render scene normally first
         scene();
@@ -6069,6 +7007,7 @@ window.startGame         = startGame;
 window.endGame           = endGame;
 window.goMenu            = goMenu;
 window.showRewards       = showRewards;
+window.switchBadgeTab    = switchBadgeTab;
 window.showNoteGuide     = showNoteGuide;
 window.showHTP           = showHTP;
 window.selectInput       = selectInput;
