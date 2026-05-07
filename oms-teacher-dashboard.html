@@ -323,6 +323,15 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
+<script>
+// Stub so inline onclick works before module loads
+function attemptLogin() { if(window._attemptLogin) window._attemptLogin(); }
+function logout() { if(window._logout) window._logout(); }
+function renderTable() { if(window._renderTable) window._renderTable(); }
+function refreshData() { if(window._refreshData) window._refreshData(); }
+function exportCSV() { if(window._exportCSV) window._exportCSV(); }
+function toggleExpand(c) { if(window._toggleExpand) window._toggleExpand(c); }
+</script>
 <script type="module">
 // ── Config ────────────────────────────────────────────────────
 const TEACHER_PASSWORD = 'oms2024'; // ← Change this to your preferred password
@@ -360,7 +369,7 @@ let _expandedCode = null;
 })();
 
 // ── Login ─────────────────────────────────────────────────────
-window.attemptLogin = function() {
+window._attemptLogin = window.attemptLogin = function() {
   const pw = document.getElementById('pw-input').value.trim();
   const errEl = document.getElementById('login-error');
   if (pw === TEACHER_PASSWORD) {
@@ -375,7 +384,7 @@ window.attemptLogin = function() {
   }
 };
 
-window.logout = function() {
+window._logout = window.logout = function() {
   document.getElementById('dash-screen').classList.remove('active');
   document.getElementById('login-screen').classList.add('active');
   document.getElementById('pw-input').value = '';
@@ -478,7 +487,7 @@ function updateSummaryStats() {
 }
 
 // ── Table rendering ───────────────────────────────────────────
-window.renderTable = function() {
+window._renderTable = window.renderTable = function() {
   const search = document.getElementById('search-input').value.trim().toLowerCase();
   const sort   = document.getElementById('sort-select').value;
 
@@ -613,20 +622,20 @@ function buildExpandPanel(s) {
 }
 
 // ── Toggle expand row ─────────────────────────────────────────
-window.toggleExpand = function(code) {
+window._toggleExpand = window.toggleExpand = function(code) {
   _expandedCode = _expandedCode === code ? null : code;
   renderTable();
 };
 
 // ── Refresh ───────────────────────────────────────────────────
-window.refreshData = async function() {
+window._refreshData = window.refreshData = async function() {
   _expandedCode = null;
   await loadAllStudents();
   showToast('✅ Data refreshed');
 };
 
 // ── Export CSV ────────────────────────────────────────────────
-window.exportCSV = function() {
+window._exportCSV = window.exportCSV = function() {
   if (_students.length === 0) { showToast('No data to export'); return; }
 
   const headers = ['Code','Name','Badges Earned','Accuracy %','Sessions','Total Correct','Total Answered','Last Played',...BADGE_NAMES];
