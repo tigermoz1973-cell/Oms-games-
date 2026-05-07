@@ -1395,9 +1395,23 @@ async function submitCode() {
 function skipCode() { _playerCode = null; _playerName = null; goMenu(); }
 
 // ── Confirm Screen ──
-function confirmYes() {
-  // Known device check — go straight to PIN
-  showPinEntry('enter');
+async function confirmYes() {
+  // Check if this device is already trusted for this code
+  let trusted = false;
+  try { trusted = localStorage.getItem('omsPinTrusted_' + _pendingCode) === '1'; } catch(e) {}
+
+  if (trusted) {
+    // Trusted device — skip PIN, go straight to menu
+    _playerCode = _pendingCode;
+    const student = await lookupStudent(_pendingCode);
+    _playerName = student ? student.name : _playerName;
+    try { localStorage.setItem('omsPlayerCode', _playerCode); localStorage.setItem('omsPlayerName', _playerName); } catch(e) {}
+    await loadProgressFromFirebase(_playerCode);
+    goMenu();
+  } else {
+    // Not yet trusted — ask for PIN
+    showPinEntry('enter');
+  }
 }
 
 function confirmNo() {
@@ -1444,10 +1458,14 @@ async function submitPin() {
   if (!student) { document.getElementById('pin-error').textContent = 'Something went wrong. Try again.'; _pinDigits = []; updatePinDisplay(); return; }
 
   if (enteredPin === student.pin) {
-    // Correct PIN
+    // Correct PIN — mark this device as trusted for this code
     _playerCode = _pendingCode;
     _playerName = student.name;
-    try { localStorage.setItem('omsPlayerCode', _playerCode); localStorage.setItem('omsPlayerName', _playerName); } catch(e) {}
+    try {
+      localStorage.setItem('omsPlayerCode', _playerCode);
+      localStorage.setItem('omsPlayerName', _playerName);
+      localStorage.setItem('omsPinTrusted_' + _playerCode, '1');
+    } catch(e) {}
     await loadProgressFromFirebase(_playerCode);
     goMenu();
   } else {
@@ -1589,14 +1607,22 @@ async function submitCreatePin() {
         await updateStudentPin(_pendingCode, pin);
         _playerCode = _pendingCode;
         _playerName = (await lookupStudent(_pendingCode))?.name || _playerName;
-        try { localStorage.setItem('omsPlayerCode', _playerCode); localStorage.setItem('omsPlayerName', _playerName); } catch(e) {}
+        try {
+          localStorage.setItem('omsPlayerCode', _playerCode);
+          localStorage.setItem('omsPlayerName', _playerName);
+          localStorage.setItem('omsPinTrusted_' + _playerCode, '1');
+        } catch(e) {}
         await loadProgressFromFirebase(_playerCode);
         goMenu();
       } else {
         // New account — save to Firebase and go
         await saveStudent(_pendingCode, _playerName, pin);
         _playerCode = _pendingCode;
-        try { localStorage.setItem('omsPlayerCode', _playerCode); localStorage.setItem('omsPlayerName', _playerName); } catch(e) {}
+        try {
+          localStorage.setItem('omsPlayerCode', _playerCode);
+          localStorage.setItem('omsPlayerName', _playerName);
+          localStorage.setItem('omsPinTrusted_' + _playerCode, '1');
+        } catch(e) {}
         await loadProgressFromFirebase(_playerCode);
         goMenu();
       }
@@ -1693,15 +1719,15 @@ document.addEventListener('click', function(e) {
 // LEVEL BADGES & COMPLETION
 // ═══════════════════════════════════════════
 const LEVEL_BADGES = [
-  { name:'First Fret',      color:'#4fc3f7', scene:'acoustic',   title:'Level 1' },
-  { name:'Beat Keeper',     color:'#ef5350', scene:'drums',      title:'Level 2' },
-  { name:'Melody Maker',    color:'#66bb6a', scene:'sax',        title:'Level 3' },
-  { name:'Keys Apprentice', color:'#ab47bc', scene:'keys',       title:'Level 4' },
-  { name:'Low Rider',       color:'#ffa726', scene:'bass',       title:'Level 5' },
-  { name:'Stage Presence',  color:'#ec407a', scene:'singer',     title:'Level 6' },
-  { name:'Shred Master',    color:'#26c6da', scene:'guitar',     title:'Level 7' },
-  { name:'Brass King',      color:'#ffee58', scene:'trumpet',    title:'Level 8' },
-  { name:'Living Legend',   color:'#ff4488', scene:'fullband',   title:'Level 9' },
+  { name:'First Notes',         color:'#4fc3f7', scene:'acoustic',   title:'Level 1' },
+  { name:'Note Spotter',        color:'#ef5350', scene:'drums',      title:'Level 2' },
+  { name:'Treble Clef Scout',   color:'#66bb6a', scene:'sax',        title:'Level 3' },
+  { name:'Staff Reader',        color:'#ab47bc', scene:'keys',       title:'Level 4' },
+  { name:'Bass Explorer',       color:'#ffa726', scene:'bass',       title:'Level 5' },
+  { name:'Grand Staff Climber', color:'#ec407a', scene:'singer',     title:'Level 6' },
+  { name:'Sharp Eye',           color:'#26c6da', scene:'guitar',     title:'Level 7' },
+  { name:'Music Scholar',       color:'#ffee58', scene:'trumpet',    title:'Level 8' },
+  { name:'Note Guru Master',    color:'#ff4488', scene:'fullband',   title:'Level 9' },
 ];
 
 // Completions stored as array of 9 booleans in localStorage
@@ -1859,9 +1885,8 @@ function buildRewardsGrid() {
     canvas.style.cssText = 'width:100%;height:100%;border-radius:50%;position:absolute;top:0;left:0;';
 
     const label = document.createElement('div');
-    label.style.cssText = 'position:absolute;bottom:13%;left:0;right:0;text-align:center;z-index:2;pointer-events:none;';
-    label.innerHTML = '<div style="font-size:0.5rem;letter-spacing:0.09em;color:#777;text-transform:uppercase;margin-bottom:1px;">Level '+(i+1)+'</div>'
-      + '<div style="font-size:0.6rem;font-weight:700;color:'+(earned ? badge.color : '#444')+';">' + badge.name + '</div>';
+    label.style.cssText = 'position:absolute;bottom:-22px;left:0;right:0;text-align:center;z-index:2;pointer-events:none;';
+    label.innerHTML = '<div style="font-size:0.58rem;font-weight:700;color:'+(earned ? badge.color : '#555')+';letter-spacing:0.05em;">' + badge.title + '</div>';
 
     const check = document.createElement('div');
     check.className = 'reward-check';
@@ -1967,1495 +1992,995 @@ function animateBadge(canvas, badge, earned) {
     ctx.globalCompositeOperation = 'source-over'; ctx.restore();
   }
 
+  // ── SHARED KEYBOARD DRAWING HELPER ───────────────────────────────
+  // Draws a mini keyboard at bottom of badge. wKeys = number of white keys.
+  // litKeys = array of white key indices to highlight. litCol = highlight colour.
+  function drawKeyboard(kyTop, wKeys, litKeys, litCol, glowAmt) {
+    const pad = 4;
+    const kbW = W - pad*2;
+    const wkW = kbW / wKeys;
+    const wkH = H - kyTop - pad;
+    const bkW = wkW * 0.58;
+    const bkH = wkH * 0.60;
+    // White keys
+    for (let k = 0; k < wKeys; k++) {
+      const kx = pad + k * wkW;
+      const isLit = litKeys.includes(k);
+      ctx.save();
+      if (isLit && glowAmt > 0) {
+        ctx.shadowColor = litCol;
+        ctx.shadowBlur = 14 * glowAmt;
+      }
+      const kg = ctx.createLinearGradient(kx, kyTop, kx, kyTop + wkH);
+      if (isLit) {
+        kg.addColorStop(0, litCol);
+        kg.addColorStop(0.5, litCol + 'cc');
+        kg.addColorStop(1, litCol + '44');
+      } else {
+        kg.addColorStop(0, '#e8e8e0');
+        kg.addColorStop(1, '#c8c8bc');
+      }
+      ctx.fillStyle = kg;
+      ctx.beginPath(); ctx.roundRect(kx+1, kyTop, wkW-2, wkH, [0,0,4,4]); ctx.fill();
+      ctx.strokeStyle = isLit ? litCol : 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = isLit ? 1.5 : 0.5;
+      ctx.beginPath(); ctx.roundRect(kx+1, kyTop, wkW-2, wkH, [0,0,4,4]); ctx.stroke();
+      ctx.restore();
+    }
+    // Black keys — pattern: after keys 0,1,3,4,5 (C D _ F G A _) repeating
+    const BLACK_AFTER_PAT = [true,true,false,true,true,true,false];
+    for (let k = 0; k < wKeys - 1; k++) {
+      if (BLACK_AFTER_PAT[k % 7]) {
+        const bx = pad + (k+1)*wkW - bkW/2;
+        const bg2 = ctx.createLinearGradient(bx, kyTop, bx, kyTop+bkH);
+        bg2.addColorStop(0,'#2a2a2a'); bg2.addColorStop(0.1,'#111'); bg2.addColorStop(0.8,'#0a0a0a'); bg2.addColorStop(1,'#222');
+        ctx.fillStyle = bg2;
+        ctx.beginPath(); ctx.roundRect(bx, kyTop, bkW, bkH, [0,0,3,3]); ctx.fill();
+      }
+    }
+  }
+
+  // Floating music note helper
+  function floatNote(sym, x, y, size, col2, alpha) {
+    ctx.save(); ctx.globalCompositeOperation='screen';
+    ctx.fillStyle = col2 + Math.floor(alpha*255).toString(16).padStart(2,'0');
+    ctx.font = `bold ${size}px serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(sym, x, y);
+    ctx.restore();
+  }
+
+  // Laser beam helper
+  function laser(x1,y1,x2,y2,laserCol,alpha,width) {
+    ctx.save(); ctx.globalCompositeOperation='screen';
+    ctx.strokeStyle = laserCol + Math.floor(alpha*255).toString(16).padStart(2,'0');
+    ctx.lineWidth = width || 1.5; ctx.lineCap='round';
+    ctx.shadowColor = laserCol; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Glowing orb/moonball
+  function orb(cx2, cy2, r, orbCol, alpha) {
+    ctx.save(); ctx.globalCompositeOperation='screen';
+    const og = ctx.createRadialGradient(cx2-r*0.25,cy2-r*0.25,r*0.05, cx2,cy2,r);
+    og.addColorStop(0,'rgba(255,255,255,'+alpha+')');
+    og.addColorStop(0.25, orbCol + Math.floor(alpha*0.9*255).toString(16).padStart(2,'0'));
+    og.addColorStop(1, orbCol+'00');
+    ctx.fillStyle=og; ctx.beginPath(); ctx.arc(cx2,cy2,r,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Treble clef glyph
+  function drawClefGlyph(x,y,size,glyphCol,alpha) {
+    ctx.save(); ctx.globalAlpha=alpha;
+    ctx.fillStyle=glyphCol; ctx.font=`${size}px Georgia,serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor=glyphCol; ctx.shadowBlur=12;
+    ctx.fillText('𝄞',x,y); ctx.restore();
+  }
+
+  // Bass clef glyph
+  function drawBassClef(x,y,size,glyphCol,alpha) {
+    ctx.save(); ctx.globalAlpha=alpha;
+    ctx.fillStyle=glyphCol; ctx.font=`${size}px Georgia,serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor=glyphCol; ctx.shadowBlur=12;
+    ctx.fillText('𝄢',x,y); ctx.restore();
+  }
+
   // ── SCENE FUNCTIONS ─────────────────────────────────────────────
+
+  const NOTE_SYMS = ['♩','♪','♫','♬'];
+  const RAINBOW = ['#ff4444','#ff8c00','#ffe033','#4ee87a','#3ab5ff','#c86eff','#ff69b4'];
 
   const scenes = {
 
-    // ── LEVEL 1: Acoustic Guitar ──────────────────────────────────
+    // ══════════════════ SHARED HELPERS (inside animateBadge closure) ══════════════════
+
+    // ── LEVEL 1: First Notes — cool kid discovering keys, proper stage spotlight ──
     acoustic: function() {
-      bg('#110e1c','#040308');
-      spotlight(62, 20, 158, '#ffcc66', 0.52+0.1*Math.sin(t*0.04));
-      spotlight(125, 16, 145, col, 0.48+0.09*Math.cos(t*0.035));
-      const fy = 133; stageFloor(fy, col); crowd(fy+10, [col,'#ffcc66','#fff']);
+      ctx.clearRect(0,0,W,H);
+      const bg1=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg1.addColorStop(0,'#0a0c22'); bg1.addColorStop(1,'#010208');
+      ctx.fillStyle=bg1; ctx.fillRect(0,0,W,H);
 
-      const cx = 90, cy = 78;
-      halo(cx, cy, 50, col, 0.35+0.1*Math.sin(t*0.05));
-
-      // === ACOUSTIC GUITAR — recognisable shape ===
-      // Body: figure-8 shape using two overlapping ellipses
-      // Lower bout (wider)
-      ctx.save();
-      ctx.translate(cx+14, cy+22);
-      ctx.rotate(0.25);
-
-      // Spruce top — warm wood grain gradient
-      const bodyGrad = ctx.createRadialGradient(0,4,2,0,6,26);
-      bodyGrad.addColorStop(0, '#d4a055');
-      bodyGrad.addColorStop(0.5,'#b8803a');
-      bodyGrad.addColorStop(1, '#8a5a22');
-      ctx.fillStyle = bodyGrad;
-      // Lower bout
-      ctx.beginPath(); ctx.ellipse(0, 8, 19, 24, 0, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#5a3210'; ctx.lineWidth=1.2; ctx.stroke();
-      // Upper bout (slightly smaller)
-      ctx.beginPath(); ctx.ellipse(0, -14, 14, 18, 0, 0, Math.PI*2); ctx.fill();
-      ctx.stroke();
-      // Waist — dark indent
-      ctx.fillStyle='#7a4820';
-      ctx.beginPath(); ctx.ellipse(0,-3,8,5,0,0,Math.PI*2); ctx.fill();
-      // Soundhole
-      ctx.fillStyle='#1a0a04';
-      ctx.beginPath(); ctx.arc(0,-4, 7, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle='rgba(255,200,100,0.6)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.arc(0,-4, 7, 0, Math.PI*2); ctx.stroke();
-      // Rosette ring decorations
-      ctx.strokeStyle='rgba(255,180,60,0.4)'; ctx.lineWidth=0.7;
-      ctx.beginPath(); ctx.arc(0,-4, 8.5, 0, Math.PI*2); ctx.stroke();
-      ctx.beginPath(); ctx.arc(0,-4, 5.5, 0, Math.PI*2); ctx.stroke();
-      // Bridge — dark strip at bottom of body
-      ctx.fillStyle='#2a1508';
-      kRoundRect(ctx, -9,18,18,5,2); ctx.fill();
-      // Bridge saddle (white stripe)
-      ctx.fillStyle='#e0ddd0';
-      ctx.fillRect(-8,18.5,16,1.5);
-      // Strings on body (6 strings)
-      ctx.strokeStyle='rgba(200,180,130,0.55)'; ctx.lineWidth=0.5;
-      for(let s=0;s<6;s++){const sx=-7+s*2.8; ctx.beginPath();ctx.moveTo(sx,20);ctx.lineTo(sx,-4);ctx.stroke();}
-      // Strap pin
-      ctx.fillStyle='#888';
-      ctx.beginPath();ctx.arc(0,25,2.5,0,Math.PI*2);ctx.fill();
-      ctx.restore();
-
-      // Neck — long tapered fretboard
-      ctx.save();
-      ctx.translate(cx+14, cy+22);
-      ctx.rotate(0.25);
-      const neckGrad = ctx.createLinearGradient(-4,-32, 4,-32);
-      neckGrad.addColorStop(0,'#3a1e08'); neckGrad.addColorStop(0.5,'#6a3a16'); neckGrad.addColorStop(1,'#3a1e08');
-      ctx.fillStyle = neckGrad;
-      ctx.beginPath(); ctx.moveTo(-4,-28); ctx.lineTo(-3,-85); ctx.lineTo(3,-85); ctx.lineTo(4,-28); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle='#1a0a00'; ctx.lineWidth=0.8; ctx.stroke();
-      // Fret lines (7 frets visible)
-      ctx.strokeStyle='rgba(200,180,140,0.7)'; ctx.lineWidth=1;
-      for(let f=0;f<8;f++){const fy2=-30-f*7; ctx.beginPath();ctx.moveTo(-3.5+f*0.1,fy2);ctx.lineTo(3.5-f*0.1,fy2);ctx.stroke();}
-      // Fret dots
-      ctx.fillStyle='rgba(255,220,140,0.6)';
-      for(let d of [1,3,5]){ctx.beginPath();ctx.arc(0,-33-d*7,1.5,0,Math.PI*2);ctx.fill();}
-      // Headstock
-      ctx.fillStyle='#2a1208';
-      ctx.beginPath();ctx.moveTo(-3,-85);ctx.lineTo(-7,-110);ctx.lineTo(7,-110);ctx.lineTo(3,-85);ctx.closePath();ctx.fill();
-      ctx.strokeStyle='#1a0800';ctx.lineWidth=0.8;ctx.stroke();
-      // Tuning pegs (3 per side)
-      ctx.fillStyle='#c0a060';
-      for(let p=0;p<3;p++){
-        ctx.beginPath();ctx.arc(-7,-90-p*7,2.5,0,Math.PI*2);ctx.fill();
-        ctx.beginPath();ctx.arc(7,-90-p*7,2.5,0,Math.PI*2);ctx.fill();
-      }
-      ctx.restore();
-
-      // Player: torso + head
-      ctx.fillStyle='#1a1228';
-      ctx.beginPath(); ctx.ellipse(cx-8, cy+5, 13, 17, -0.12, 0, Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cx-8, cy-16, 10, 0, Math.PI*2); ctx.fill();
-      // Strumming arm
-      const strumAngle = 0.3*Math.sin(t*0.18);
-      ctx.strokeStyle='#1a1228'; ctx.lineWidth=8; ctx.lineCap='round';
-      ctx.beginPath(); ctx.moveTo(cx-4, cy+2); ctx.quadraticCurveTo(cx+10+strumAngle*8, cy+12, cx+22, cy+8+strumAngle*6); ctx.stroke();
-    },
-
-    // ── LEVEL 2: Drum Kit ─────────────────────────────────────────
-    drums: function() {
-      bg('#120810','#03010a');
-      spotlight(W/2, 24, 165, col, 0.6+0.12*Math.sin(t*0.07));
-      spotlight(18, 14, 122, '#ff4455', 0.42+0.08*Math.cos(t*0.05));
-      spotlight(W-18, 14, 122, '#4499ff', 0.42+0.08*Math.sin(t*0.04));
-      const fy = 132; stageFloor(fy, col); crowd(fy+10, [col,'#ff4455','#4499ff']);
-
-      const hit = Math.sin(t*0.22) > 0;
-      halo(W/2, 85, 55, col, 0.3+0.15*(hit?1:0));
-
-      // === DRUM KIT — detailed ===
-      // Bass drum (kick) — large circle on floor
-      const bkx=90, bky=118;
-      const bdGrad = ctx.createRadialGradient(bkx,bky,3,bkx,bky,24);
-      bdGrad.addColorStop(0,'#2a1a2a'); bdGrad.addColorStop(1,'#0e080e');
-      ctx.fillStyle=bdGrad;
-      ctx.beginPath(); ctx.ellipse(bkx,bky,26,20,0,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle=col; ctx.lineWidth=2.5; ctx.stroke();
-      // Bass drum head (front skin)
-      ctx.fillStyle='rgba(40,25,40,0.8)';
-      ctx.beginPath(); ctx.ellipse(bkx,bky,22,17,0,0,Math.PI*2); ctx.fill();
-      // Logo on kick
-      ctx.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},0.5)`; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.arc(bkx,bky,10,0,Math.PI*2); ctx.stroke();
-      // Bass drum legs
-      ctx.strokeStyle='#555'; ctx.lineWidth=2;
-      ctx.beginPath();ctx.moveTo(bkx-20,bky+16);ctx.lineTo(bkx-22,bky+26);ctx.stroke();
-      ctx.beginPath();ctx.moveTo(bkx+20,bky+16);ctx.lineTo(bkx+22,bky+26);ctx.stroke();
-      // Pedal
-      ctx.fillStyle='#444';
-      kRoundRect(ctx, bkx-8,bky+20,16,6,2);ctx.fill();
-
-      // Floor tom
-      const ftx=128, fty=112;
-      const ftGrad=ctx.createRadialGradient(ftx,fty-3,2,ftx,fty,16);
-      ftGrad.addColorStop(0,'#2a1a10');ftGrad.addColorStop(1,'#100808');
-      ctx.fillStyle=ftGrad;
-      ctx.beginPath();ctx.ellipse(ftx,fty,16,12,0,0,Math.PI*2);ctx.fill();
-      ctx.strokeStyle='#886644';ctx.lineWidth=2;ctx.stroke();
-      // floor tom lugs
-      for(let a=0;a<4;a++){const ang=a*Math.PI/2;ctx.fillStyle='#888';ctx.beginPath();ctx.arc(ftx+17*Math.cos(ang),fty+13*Math.sin(ang),2,0,Math.PI*2);ctx.fill();}
-      // floor tom legs
-      ctx.strokeStyle='#555';ctx.lineWidth=2;
-      ctx.beginPath();ctx.moveTo(ftx-10,fty+10);ctx.lineTo(ftx-10,fty+26);ctx.stroke();
-      ctx.beginPath();ctx.moveTo(ftx+10,fty+10);ctx.lineTo(ftx+10,fty+26);ctx.stroke();
-
-      // Snare drum
-      const snx=64, sny=104;
-      ctx.fillStyle='#c0c0c0';
-      ctx.beginPath();ctx.ellipse(snx,sny,14,10,0,0,Math.PI*2);ctx.fill();
-      ctx.strokeStyle='#888';ctx.lineWidth=1.5;ctx.stroke();
-      ctx.fillStyle='#e0e0e0';
-      ctx.beginPath();ctx.ellipse(snx,sny,11,7.5,0,0,Math.PI*2);ctx.fill();
-      // Snare strainer
-      ctx.strokeStyle='#aaa';ctx.lineWidth=0.8;
-      ctx.beginPath();ctx.moveTo(snx-8,sny+8);ctx.lineTo(snx+8,sny+8);ctx.stroke();
-      // Snare stand
-      ctx.strokeStyle='#666';ctx.lineWidth=2;
-      ctx.beginPath();ctx.moveTo(snx,sny+9);ctx.lineTo(snx-10,sny+26);ctx.stroke();
-      ctx.beginPath();ctx.moveTo(snx,sny+9);ctx.lineTo(snx+10,sny+26);ctx.stroke();
-
-      // Hi-hat stand + cymbals
-      const hhx=55, hhy=88;
-      ctx.strokeStyle='#666';ctx.lineWidth=2;
-      ctx.beginPath();ctx.moveTo(hhx,hhy+10);ctx.lineTo(hhx-8,sny+26);ctx.stroke();
-      // Hi-hat cymbals (two overlapping ellipses)
-      ctx.fillStyle='#d4a820';
-      ctx.beginPath();ctx.ellipse(hhx,hhy,15,4.5,0,0,Math.PI*2);ctx.fill();
-      ctx.strokeStyle='#a07810';ctx.lineWidth=1;ctx.stroke();
-      ctx.fillStyle='#c89a18';
-      ctx.beginPath();ctx.ellipse(hhx,hhy+3,12,3.5,0,0,Math.PI*2);ctx.fill();
-      // Bow reflection on hi-hat
-      ctx.strokeStyle='rgba(255,240,150,0.5)';ctx.lineWidth=0.8;
-      ctx.beginPath();ctx.ellipse(hhx-3,hhy-1,8,2,0,0,Math.PI);ctx.stroke();
-
-      // Crash cymbal (upper right)
-      const crx=138,cry=75;
-      ctx.save();ctx.translate(crx,cry);ctx.rotate(-0.2+0.04*Math.sin(t*0.08));
-      ctx.fillStyle='#c89010';
-      ctx.beginPath();ctx.ellipse(0,0,20,5.5,0,0,Math.PI*2);ctx.fill();
-      ctx.strokeStyle='#906008';ctx.lineWidth=1;ctx.stroke();
-      ctx.strokeStyle='rgba(255,230,120,0.45)';ctx.lineWidth=0.8;
-      ctx.beginPath();ctx.ellipse(-4,-1,12,3,0,0,Math.PI);ctx.stroke();
-      ctx.restore();
-      // Crash stand
-      ctx.strokeStyle='#555';ctx.lineWidth=1.5;
-      ctx.beginPath();ctx.moveTo(crx,cry+4);ctx.lineTo(crx+6,fty+20);ctx.stroke();
-
-      // Ride cymbal (back right, partially behind)
-      const rdx=152,rdy=95;
-      ctx.fillStyle='#b88010';
-      ctx.beginPath();ctx.ellipse(rdx,rdy,18,5,0.15,0,Math.PI*2);ctx.fill();
-      ctx.strokeStyle='#806000';ctx.lineWidth=1;ctx.stroke();
-
-      // Rack tom (on top of bass drum)
-      const rtx=74,rty=88;
-      ctx.fillStyle='#1a1228';
-      ctx.beginPath();ctx.ellipse(rtx,rty,14,10,0,0,Math.PI*2);ctx.fill();
-      ctx.strokeStyle=col;ctx.lineWidth=1.8;ctx.stroke();
-      ctx.fillStyle='rgba(20,10,30,0.9)';
-      ctx.beginPath();ctx.ellipse(rtx,rty,11,7.5,0,0,Math.PI*2);ctx.fill();
-      // lugs
-      for(let a=0;a<4;a++){const ang=a*Math.PI/2;ctx.fillStyle='#666';ctx.beginPath();ctx.arc(rtx+15*Math.cos(ang),rty+10*Math.sin(ang),1.8,0,Math.PI*2);ctx.fill();}
-
-      // Second rack tom
-      const rt2x=106,rt2y=83;
-      ctx.fillStyle='#1a1228';
-      ctx.beginPath();ctx.ellipse(rt2x,rt2y,13,9,0,0,Math.PI*2);ctx.fill();
-      ctx.strokeStyle=col;ctx.lineWidth=1.8;ctx.stroke();
-      ctx.fillStyle='rgba(20,10,30,0.9)';
-      ctx.beginPath();ctx.ellipse(rt2x,rt2y,10,7,0,0,Math.PI*2);ctx.fill();
-
-      // Drummer: head + torso (seated, behind kit)
-      ctx.fillStyle='#0e0a18';
-      ctx.beginPath();ctx.ellipse(90,72,12,15,0,0,Math.PI*2);ctx.fill();
-      ctx.beginPath();ctx.arc(90,52,10,0,Math.PI*2);ctx.fill();
-
-      // Drumstick right (hits snare)
-      ctx.save();
-      const stickR = hit ? 0.5 : -0.3;
-      ctx.translate(78,80);ctx.rotate(stickR);
-      ctx.strokeStyle='#d4a060';ctx.lineWidth=3;ctx.lineCap='round';
-      ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-16,-28);ctx.stroke();
-      ctx.fillStyle='#d4a060';ctx.beginPath();ctx.arc(-16,-28,2.5,0,Math.PI*2);ctx.fill();
-      ctx.restore();
-      // Drumstick left (hits hi-hat)
-      ctx.save();
-      const stickL = !hit ? -0.4 : 0.2;
-      ctx.translate(64,75);ctx.rotate(stickL);
-      ctx.strokeStyle='#d4a060';ctx.lineWidth=3;ctx.lineCap='round';
-      ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-14,-26);ctx.stroke();
-      ctx.fillStyle='#d4a060';ctx.beginPath();ctx.arc(-14,-26,2.5,0,Math.PI*2);ctx.fill();
-      ctx.restore();
-
-      // Impact flash on snare hit
-      if (hit && Math.sin(t*0.22)>0.82) {
-        ctx.save();ctx.globalCompositeOperation='screen';
-        const fl=ctx.createRadialGradient(snx,sny,1,snx,sny,20);
-        fl.addColorStop(0,'rgba(255,255,255,0.7)');fl.addColorStop(1,'transparent');
-        ctx.fillStyle=fl;ctx.beginPath();ctx.arc(snx,sny,20,0,Math.PI*2);ctx.fill();
-        ctx.globalCompositeOperation='source-over';ctx.restore();
-      }
-    },
-
-    // ── LEVEL 3: Classical Flautist (ref: violin lady silhouette) ─
-    sax: function() {
-      bg('#06080f','#020408');
-      spotlight(90, 20, 165, '#c8e8ff', 0.58+0.08*Math.sin(t*0.04));
-      spotlight(140, 14, 138, col, 0.38+0.07*Math.cos(t*0.035));
-      const fy = 140; stageFloor(fy, '#aaddff'); crowd(fy+8, [col,'#aaddff','#ffffff']);
-      halo(90, 72, 62, '#c8e8ff', 0.24+0.07*Math.sin(t*0.05));
-
-      // ═══ Based on reference: profile silhouette facing LEFT.
-      // Hair bun on top of head. Head faces left.
-      // RIGHT arm raised: upper arm up, forearm out RIGHT holding flute far end (headstock side).
-      // LEFT arm: elbow down in front of body, forearm angles UP-RIGHT to embouchure.
-      // Flute goes from mouth (left of face) extending RIGHT across to right hand.
-      // Body is upright, elegant. Flowing dress / skirt.
-
-      // Floor glow
-      ctx.save(); ctx.globalCompositeOperation='screen';
-      const fg=ctx.createRadialGradient(90,140,0,90,140,34);
-      fg.addColorStop(0,'rgba(170,200,255,0.3)'); fg.addColorStop(1,'transparent');
-      ctx.fillStyle=fg; ctx.beginPath(); ctx.ellipse(90,140,34,10,0,0,Math.PI*2); ctx.fill();
-      ctx.globalCompositeOperation='source-over'; ctx.restore();
-
-      // ── DRESS / SKIRT — elegant, floor length ──
-      const dG=ctx.createLinearGradient(74,96,110,140);
-      dG.addColorStop(0,col+'cc'); dG.addColorStop(0.5,col+'99'); dG.addColorStop(1,col+'55');
-      ctx.fillStyle=dG;
-      ctx.beginPath();
-      ctx.moveTo(84,96); ctx.bezierCurveTo(80,108,72,120,64,140);
-      ctx.lineTo(116,140); ctx.bezierCurveTo(108,120,100,108,96,96);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle=col+'44'; ctx.lineWidth=1; ctx.stroke();
-      // Waist sash
-      ctx.fillStyle=col+'bb'; kRoundRect(ctx, 80,106,20,6,2); ctx.fill();
-      // Dress fold lines
-      ctx.strokeStyle='rgba(255,255,255,0.13)'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(90,100); ctx.bezierCurveTo(89,114,88,128,87,140); ctx.stroke();
-      ctx.strokeStyle=col+'44'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(78,116); ctx.bezierCurveTo(76,126,74,134,72,140); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(102,116); ctx.bezierCurveTo(104,126,106,134,108,140); ctx.stroke();
-
-      // ── BODICE / TORSO (profile-ish, facing left) ──
-      const bG=ctx.createLinearGradient(80,74,104,98);
-      bG.addColorStop(0,col+'ee'); bG.addColorStop(1,col+'aa');
-      ctx.fillStyle=bG;
-      ctx.beginPath();
-      ctx.moveTo(84,96); ctx.bezierCurveTo(80,88,79,78,82,72);
-      ctx.bezierCurveTo(85,66,94,64,98,68);
-      ctx.bezierCurveTo(102,72,102,84,100,96);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle=col+'55'; ctx.lineWidth=1; ctx.stroke();
-      // Bare shoulders hint (like reference)
-      ctx.strokeStyle='rgba(180,140,110,0.35)'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(82,72); ctx.bezierCurveTo(76,70,70,72,66,76); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(98,68); ctx.bezierCurveTo(104,66,110,68,114,74); ctx.stroke();
-
-      // ── NECK ──
-      ctx.fillStyle='#d4a882';
-      kRoundRect(ctx, 85,62,8,14,4); ctx.fill();
-
-      // ── HEAD — profile facing LEFT, hair bun on top ──
-      // In reference: clear left-facing profile. Bun on top of head.
-      const headX=84, headY=50;
-      ctx.save(); ctx.translate(headX, headY);
-
-      // Hair bun (top of head, like reference)
-      ctx.fillStyle='#2a1a0e';
-      ctx.beginPath(); ctx.arc(4,-14,9,0,Math.PI*2); ctx.fill(); // bun
-      ctx.beginPath(); ctx.arc(0,-8,12,0,Math.PI*2); ctx.fill(); // head hair mass
-      // Hair detail lines on bun
-      ctx.strokeStyle='#3a2418'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.arc(4,-14,7,Math.PI*0.8,Math.PI*2.2); ctx.stroke();
-      ctx.beginPath(); ctx.arc(4,-14,5,Math.PI*0.6,Math.PI*2.0); ctx.stroke();
-
-      // Face (left-facing profile)
-      ctx.fillStyle='#d4a882';
-      ctx.beginPath(); ctx.ellipse(-2,2,7,10,0,0,Math.PI*2); ctx.fill();
-      // Forehead ridge / profile silhouette
-      ctx.beginPath(); ctx.moveTo(-2,-8); ctx.bezierCurveTo(-8,-8,-10,-2,-10,2); ctx.bezierCurveTo(-10,8,-6,12,-4,14); ctx.bezierCurveTo(-3,16,-2,18,0,20); ctx.strokeStyle='#c09070'; ctx.lineWidth=1; ctx.stroke();
-      // Eye (closed, looking down)
-      ctx.fillStyle='#1a1010';
-      ctx.beginPath(); ctx.ellipse(-5,1,3.5,1.5,-0.3,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#1a1010'; ctx.lineWidth=1;
-      for(let e=0;e<4;e++){ctx.beginPath();ctx.moveTo(-8+e,1.5);ctx.lineTo(-8.5+e*0.8,4);ctx.stroke();}
-      // Eyebrow
-      ctx.strokeStyle='#2a1a0e'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(-8,-3); ctx.quadraticCurveTo(-5,-6,-1,-4); ctx.stroke();
-      // Nose (profile)
-      ctx.strokeStyle='#b08060'; ctx.lineWidth=1.2;
-      ctx.beginPath(); ctx.moveTo(-8,2); ctx.bezierCurveTo(-11,4,-12,8,-10,10); ctx.bezierCurveTo(-8,12,-6,11,-5,12); ctx.stroke();
-      // Lips (pursed — playing flute)
-      ctx.fillStyle='#c06070';
-      ctx.beginPath(); ctx.ellipse(-6,14,4,2.5,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#a04858';
-      ctx.beginPath(); ctx.ellipse(-6,13,3.5,1.5,0,Math.PI,0); ctx.fill();
-      // Chin
-      ctx.strokeStyle='#b08060'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(-5,17); ctx.bezierCurveTo(-3,20,2,20,4,18); ctx.stroke();
-      // Cheek blush
-      ctx.fillStyle='rgba(220,130,110,0.2)'; ctx.beginPath(); ctx.arc(-7,6,4,0,Math.PI*2); ctx.fill();
-      ctx.restore();
-
-      // ── FLUTE — horizontal, from lips (left of face) extending RIGHT ──
-      // Face lips at approx world (headX-10, headY+14+2) = (74, 66)
-      // Flute runs from ~(74,66) rightward to ~(150,62) — ~76px long
-      ctx.save();
-      ctx.translate(74, 65);
-      ctx.rotate(-0.06); // very slight upward angle to the right
-
-      const fG=ctx.createLinearGradient(-4,-3,80,-3);
-      fG.addColorStop(0,'#808898'); fG.addColorStop(0.1,'#d0d2e0');
-      fG.addColorStop(0.3,'#eeeef8'); fG.addColorStop(0.5,'#f8f8ff');
-      fG.addColorStop(0.7,'#d8daea'); fG.addColorStop(0.9,'#b0b2c0'); fG.addColorStop(1,'#909098');
-      ctx.fillStyle=fG;
-      kRoundRect(ctx, -4,-3,88,6,3); ctx.fill();
-      ctx.strokeStyle='rgba(60,60,90,0.35)'; ctx.lineWidth=0.7; ctx.stroke();
-      ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=1.2;
-      ctx.beginPath(); ctx.moveTo(-2,-1.5); ctx.lineTo(82,-1.5); ctx.stroke();
-      ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(-2,1.5); ctx.lineTo(82,1.5); ctx.stroke();
-      // Embouchure hole (near left/mouth end)
-      ctx.fillStyle='#14141e';
-      kRoundRect(ctx, 2,-1.5,7,4,1.5); ctx.fill();
-      // Section joints
-      ctx.fillStyle='#707080';
-      kRoundRect(ctx, 28,-3,3,6,0); ctx.fill();
-      kRoundRect(ctx, 54,-3,3,6,0); ctx.fill();
-      // Key posts and cups
-      [14,22,32,42,58,66,74].forEach(function(kx){
-        ctx.strokeStyle='#b0b0c8'; ctx.lineWidth=1;
-        ctx.beginPath(); ctx.moveTo(kx,-3); ctx.lineTo(kx,-6.5); ctx.stroke();
-        ctx.fillStyle='#d0d0e0'; ctx.beginPath(); ctx.arc(kx,-7.5,3.2,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle='#8888a0'; ctx.lineWidth=0.6; ctx.stroke();
-        ctx.fillStyle='rgba(200,185,165,0.6)'; ctx.beginPath(); ctx.arc(kx,-7.5,2.1,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle='rgba(255,255,255,0.38)'; ctx.beginPath(); ctx.arc(kx-0.7,-8.2,0.9,0,Math.PI*2); ctx.fill();
-      });
-      // Far end cap
-      ctx.fillStyle='#909098'; ctx.beginPath(); ctx.ellipse(84,0,3,3,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#101018'; ctx.beginPath(); ctx.arc(84,0,1.8,0,Math.PI*2); ctx.fill();
-      ctx.restore();
-
-      // ── ARMS — exactly like reference violin image ──
-      // Reference: LEFT arm raised up, elbow OUT-LEFT, forearm angles DOWN-RIGHT to instrument near face.
-      //            RIGHT arm: elbow points DOWN in front of body, forearm goes UP-LEFT to hold far end.
-      // Mapping to flute: 
-      //   LEFT hand = near embouchure (left/mouth end of flute) ~ world (74,65)
-      //   RIGHT hand = far end of flute ~ world (152,62)
-
-      const skin='#d4a882';
-      ctx.strokeStyle=skin; ctx.lineWidth=10; ctx.lineCap='round'; ctx.lineJoin='round';
-
-      // LEFT ARM (near embouchure): shoulder(84,78) → elbow out-left (66,72) → hand UP to flute (74,65)
-      ctx.beginPath(); ctx.moveTo(84,78); ctx.lineTo(66,72); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(66,72); ctx.lineTo(74,65); ctx.stroke();
-      ctx.fillStyle=skin; ctx.beginPath(); ctx.arc(74,65,5,0,Math.PI*2); ctx.fill();
-      // Left hand fingers on flute
-      ctx.strokeStyle='#c09070'; ctx.lineWidth=2; ctx.lineCap='round';
-      ctx.beginPath(); ctx.moveTo(71,61); ctx.bezierCurveTo(70,66,72,69,75,68); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(75,61); ctx.bezierCurveTo(74,66,76,69,78,68); ctx.stroke();
-
-      // RIGHT ARM (far end): shoulder(96,76) → elbow DOWN-right (110,96) → forearm UP to far flute end (150,62)
-      ctx.strokeStyle=skin; ctx.lineWidth=10;
-      ctx.beginPath(); ctx.moveTo(96,76); ctx.lineTo(110,94); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(110,94); ctx.lineTo(150,63); ctx.stroke();
-      ctx.fillStyle=skin; ctx.beginPath(); ctx.arc(150,63,5,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#c09070'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(147,59); ctx.bezierCurveTo(146,65,149,68,152,66); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(151,59); ctx.bezierCurveTo(150,65,153,68,155,66); ctx.stroke();
-
-      // Notes from far right end of flute
-      for(let n=0;n<4;n++){
-        const age=(t*0.5+n*20)%62;
-        const nx=156+age*0.4+n*5, ny=58-age*0.4;
-        const alpha=Math.max(0,1-age/62);
+      // Stars
+      for(let s=0;s<20;s++){
+        const sx=(s*43+9)%W, sy=(s*31+5)%(H*0.82);
+        const sa=0.2+0.4*Math.abs(Math.sin(t*0.04+s*0.8));
         ctx.save(); ctx.globalCompositeOperation='screen';
-        ctx.fillStyle=`rgba(180,220,255,${alpha})`;
-        ctx.font=`${12-n}px serif`; ctx.fillText(['♩','♪','♫','♬'][n],nx,ny);
-        ctx.globalCompositeOperation='source-over'; ctx.restore();
+        ctx.fillStyle=`rgba(180,200,255,${sa})`; ctx.beginPath(); ctx.arc(sx,sy,0.7,0,Math.PI*2); ctx.fill(); ctx.restore();
       }
-    },
 
-    // ── LEVEL 4: Keyboard Player ──────────────────────────────────
-    keys: function() {
-      bg('#0e0818','#030106');
-      spotlight(90, 26, 168, col, 0.58+0.1*Math.sin(t*0.04));
-      spotlight(40, 14, 130, '#cc66ff', 0.42+0.08*Math.cos(t*0.035));
-      spotlight(150, 14, 130, '#cc66ff', 0.42+0.08*Math.sin(t*0.04));
-      const fy = 136; stageFloor(fy, col); crowd(fy+8, [col,'#cc66ff','#fff']);
-      halo(90, 52, 62, col, 0.32+0.1*Math.sin(t*0.05));
+      // ── PROPER STAGE SPOTLIGHT — cone from top, narrow at source, wide pool at bottom ──
+      // The spot origin sweeps left-right at the top, the pool follows the character
+      const kx1=W/2, ky1=H*0.41;
+      const spotOriginX = W*0.5 + Math.sin(t*0.028)*W*0.35; // source moves at top
+      const poolX = kx1 + Math.sin(t*0.028)*10; // pool follows character below
+      const poolY = H*0.75;
+      const poolRad = W*0.38; // wide pool at stage floor
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      // Draw the cone as a clipped triangle gradient
+      ctx.beginPath();
+      ctx.moveTo(spotOriginX, 0);           // narrow point at top
+      ctx.lineTo(poolX - poolRad, poolY);   // wide left at bottom
+      ctx.lineTo(poolX + poolRad, poolY);   // wide right at bottom
+      ctx.closePath();
+      const coneGrad = ctx.createLinearGradient(spotOriginX, 0, poolX, poolY);
+      coneGrad.addColorStop(0, 'rgba(255,255,220,0.55)');
+      coneGrad.addColorStop(0.3, 'rgba(255,255,200,0.18)');
+      coneGrad.addColorStop(1, 'rgba(255,255,180,0.0)');
+      ctx.fillStyle = coneGrad; ctx.fill();
+      // Pool of light at floor
+      const poolGrad = ctx.createRadialGradient(poolX, poolY, 0, poolX, poolY, poolRad);
+      poolGrad.addColorStop(0, 'rgba(255,255,200,0.22)');
+      poolGrad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = poolGrad; ctx.beginPath(); ctx.ellipse(poolX, poolY, poolRad, poolRad*0.3, 0, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
 
-      // ═══ KEYBOARD PLAYER — seated, arms BENT DOWN onto keys ═══
-      // Keyboard is at waist/lap height. Arms bend forward-down from shoulders.
+      // Strobe
+      if(Math.sin(t*0.18)>0.96){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
 
-      // Stand legs (background)
-      ctx.strokeStyle='#3a3a50'; ctx.lineWidth=3; ctx.lineCap='round';
-      ctx.beginPath(); ctx.moveTo(52,136); ctx.lineTo(58,114); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(128,136); ctx.lineTo(122,114); ctx.stroke();
-      ctx.strokeStyle='#303048'; ctx.lineWidth=4;
-      ctx.beginPath(); ctx.moveTo(46,136); ctx.lineTo(58,136); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(122,136); ctx.lineTo(134,136); ctx.stroke();
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 1',W/2,12); ctx.restore();
 
-      // Stool
-      ctx.fillStyle='#1c1c2e'; kRoundRect(ctx, 79,120,22,4,2); ctx.fill();
-      ctx.strokeStyle='#444'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(82,124); ctx.lineTo(80,136); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(98,124); ctx.lineTo(100,136); ctx.stroke();
-
+      // ── Cool kid — proper proportions, no gross mouth ──
+      const bob=3*Math.sin(t*0.1);
+      const kx=kx1, ky=ky1+bob;
+      // Cool jacket/hoodie
+      ctx.fillStyle='#1a2244';
+      ctx.beginPath(); ctx.ellipse(kx,ky+10,10,13,0,0,Math.PI*2); ctx.fill();
+      // Hoodie pocket stripe
+      ctx.fillStyle='#2a3366';
+      ctx.beginPath(); ctx.roundRect(kx-6,ky+8,12,8,3); ctx.fill();
+      // Head
+      ctx.fillStyle='#e8aa70';
+      ctx.beginPath(); ctx.arc(kx,ky-11,10,0,Math.PI*2); ctx.fill();
+      // Cool hair — swept side
+      ctx.fillStyle='#2a1a08';
+      ctx.beginPath(); ctx.ellipse(kx+1,ky-20,10,5,-0.15,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx-7,ky-17,4,6,0.4,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+8,ky-18,5,4,-0.3,0,Math.PI*2); ctx.fill();
+      // Wide surprised eyes — no red mouth
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(kx-4,ky-12,3,3.2,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+4,ky-12,3,3.2,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#1a3a88'; ctx.beginPath(); ctx.arc(kx-4,ky-12,1.9,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+4,ky-12,1.9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(kx-4.3,ky-12.4,0.75,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+3.7,ky-12.4,0.75,0,Math.PI*2); ctx.fill();
+      // Raised eyebrows
+      ctx.strokeStyle='#5a3010'; ctx.lineWidth=1.5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-6.5,ky-16.5); ctx.quadraticCurveTo(kx-4,ky-18,kx-1.5,ky-16.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+1.5,ky-16.5); ctx.quadraticCurveTo(kx+4,ky-18,kx+6.5,ky-16.5); ctx.stroke();
+      // Small open mouth — just a subtle smile, not red
+      ctx.strokeStyle='#a06040'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(kx,ky-7,3,0.2,Math.PI-0.2); ctx.stroke();
+      // Arms — left waves, right points at key
+      const waveAngle=0.5*Math.sin(t*0.12);
+      ctx.strokeStyle='#e8aa70'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+3); ctx.lineTo(kx-20+waveAngle*5,ky-5+waveAngle*8); ctx.stroke();
+      const fingerBob=3*Math.sin(t*0.14);
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+3); ctx.lineTo(kx+22,ky+18+fingerBob); ctx.stroke();
+      ctx.fillStyle='#e8aa70'; ctx.beginPath(); ctx.arc(kx+22,ky+21+fingerBob,3,0,Math.PI*2); ctx.fill();
+      // Sparkle at fingertip
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const spk=0.5+0.5*Math.sin(t*0.18);
+      ctx.fillStyle=`rgba(255,240,80,${spk})`; ctx.shadowColor='#ffff00'; ctx.shadowBlur=8;
+      ctx.beginPath(); ctx.arc(kx+22,ky+21+fingerBob,4*spk,0,Math.PI*2); ctx.fill(); ctx.restore();
       // Legs
-      ctx.fillStyle='#1a1830';
-      ctx.beginPath(); ctx.moveTo(82,118); ctx.bezierCurveTo(78,126,74,132,72,136); ctx.lineTo(80,136); ctx.bezierCurveTo(82,132,85,126,87,118); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(98,118); ctx.bezierCurveTo(102,126,106,132,108,136); ctx.lineTo(100,136); ctx.bezierCurveTo(98,132,95,126,93,118); ctx.closePath(); ctx.fill();
-      ctx.fillStyle='#0a0a10';
-      ctx.beginPath(); ctx.ellipse(74,136,7,3,0,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(106,136,7,3,0,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#1a2244'; ctx.lineWidth=6; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+22); ctx.lineTo(kx-5,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+22); ctx.lineTo(kx+6,ky+32); ctx.stroke();
 
-      // Torso — leaning slightly forward
-      const tG=ctx.createLinearGradient(78,64,102,116);
-      tG.addColorStop(0,col+'dd'); tG.addColorStop(0.5,col+'99'); tG.addColorStop(1,col+'55');
-      ctx.fillStyle=tG;
-      ctx.beginPath(); ctx.moveTo(80,116); ctx.bezierCurveTo(76,108,76,94,79,82);
-      ctx.bezierCurveTo(82,70,86,66,90,66); ctx.bezierCurveTo(94,66,98,70,101,82);
-      ctx.bezierCurveTo(104,94,104,108,100,116); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle=col+'33'; ctx.lineWidth=1; ctx.stroke();
-      // Collar V
-      ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(86,66); ctx.lineTo(90,72); ctx.lineTo(94,66); ctx.stroke();
+      // Floating note
+      const fn1x=W*0.18+6*Math.sin(t*0.05); const fn1y=H*0.28+5*Math.cos(t*0.04);
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=col; ctx.font='15px serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=8; ctx.fillText('♪',fn1x,fn1y); ctx.restore();
 
-      // Neck
-      ctx.fillStyle='#c8a880';
-      kRoundRect(ctx, 86,58,8,12,4); ctx.fill();
-
-      // Head — bowed forward, looking at keys
-      ctx.fillStyle='#1a1010';
-      ctx.beginPath(); ctx.arc(90,47,13,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#120c0c';
-      ctx.beginPath(); ctx.ellipse(90,44,11,8,0,Math.PI,0); ctx.fill();
-      ctx.fillStyle='#c8a880';
-      ctx.beginPath(); ctx.ellipse(90,50,9.5,11,0.1,0,Math.PI*2); ctx.fill();
-      // Eyes downcast
-      ctx.fillStyle='#1a1010';
-      ctx.beginPath(); ctx.ellipse(86,51,3,1.5,0.2,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(94,51,3,1.5,-0.2,0,Math.PI*2); ctx.fill();
-      // Eyebrows (focused)
-      ctx.strokeStyle='#1a1010'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(83,48); ctx.lineTo(89,49); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(91,49); ctx.lineTo(97,48); ctx.stroke();
-      // Mouth
-      ctx.strokeStyle='#907060'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.arc(90,57,3.5,0.2,Math.PI-0.2); ctx.stroke();
-
-      // ── ARMS — bent at elbows, forearms angle DOWN onto keyboard ──
-      // Keyboard is at y≈116. Shoulders at ~(80,80) and (100,80).
-      // Elbows go outward, forearms come DOWN to keys.
-      // Left: shoulder(80,80) → elbow(66,96) → hand(62,114)
-      // Right: shoulder(100,80) → elbow(114,96) → hand(118,114)
-      const sway = 2.5*Math.sin(t*0.09);
-      ctx.strokeStyle='#c8a880'; ctx.lineWidth=9; ctx.lineCap='round';
-      // Left upper arm
-      ctx.beginPath(); ctx.moveTo(80,82); ctx.lineTo(66,96); ctx.stroke();
-      // Left forearm
-      ctx.beginPath(); ctx.moveTo(66,96); ctx.lineTo(60+sway, 114); ctx.stroke();
-      // Right upper arm
-      ctx.beginPath(); ctx.moveTo(100,82); ctx.lineTo(114,96); ctx.stroke();
-      // Right forearm
-      ctx.beginPath(); ctx.moveTo(114,96); ctx.lineTo(120-sway, 114); ctx.stroke();
-      // Hands
-      ctx.fillStyle='#c8a880';
-      ctx.beginPath(); ctx.arc(60+sway,114,5,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(120-sway,114,5,0,Math.PI*2); ctx.fill();
-
-      // ── KEYBOARD (in front at hand height) ──
-      ctx.save(); ctx.translate(90,114);
-      const kbG=ctx.createLinearGradient(0,-12,0,8);
-      kbG.addColorStop(0,'#2e2e42'); kbG.addColorStop(0.4,'#1e1e30'); kbG.addColorStop(1,'#141420');
-      ctx.fillStyle=kbG;
-      kRoundRect(ctx, -44,-12,88,20,4); ctx.fill();
-      ctx.strokeStyle='#454560'; ctx.lineWidth=1.5; ctx.stroke();
-      ctx.fillStyle='rgba(255,255,255,0.04)';
-      kRoundRect(ctx, -43,-11,86,7,3); ctx.fill();
-      // White keys (22)
-      const nk=22, kw=3.8, ks=-38;
-      for(let i=0;i<nk;i++){
-        const kx=ks+i*(kw+0.3);
-        const pressed=Math.floor(t*0.09)%nk===i;
-        const kg=ctx.createLinearGradient(kx,-6,kx,6);
-        if(pressed){kg.addColorStop(0,'#eeddff'); kg.addColorStop(1,'#c8aaee');}
-        else{kg.addColorStop(0,'#f5f3fa'); kg.addColorStop(0.1,'#fff'); kg.addColorStop(0.85,'#eeecf6'); kg.addColorStop(1,'#dcdae8');}
-        ctx.fillStyle=kg; kRoundRect(ctx, kx,-6,kw,12,1.5); ctx.fill();
-        ctx.strokeStyle='#bbb5cc'; ctx.lineWidth=0.4; ctx.stroke();
-        if(pressed){
-          ctx.save(); ctx.globalCompositeOperation='screen';
-          const pg=ctx.createRadialGradient(kx+kw/2,-0,1,kx+kw/2,0,10);
-          pg.addColorStop(0,col+'aa'); pg.addColorStop(1,'transparent');
-          ctx.fillStyle=pg; ctx.fillRect(kx-2,-8,kw+4,16);
-          ctx.globalCompositeOperation='source-over'; ctx.restore();
-        }
-      }
-      // Black keys
-      const bp=[0,1,0,1,0,0,1,0,1,0,1,0,0,1,0,1,0,0,1,0,1,0];
-      bp.forEach(function(b,i){
-        if(!b)return;
-        const bx=ks+i*(kw+0.3)+kw*0.65;
-        const bkg=ctx.createLinearGradient(bx,-6,bx,0);
-        bkg.addColorStop(0,'#3c3450'); bkg.addColorStop(0.6,'#1c1428'); bkg.addColorStop(1,'#28203c');
-        ctx.fillStyle=bkg; kRoundRect(ctx, bx,-6,2.4,8,1); ctx.fill();
-        ctx.fillStyle='rgba(255,255,255,0.14)'; ctx.fillRect(bx+0.3,-6,0.7,3.5);
-      });
-      // Pitch wheel
-      ctx.fillStyle='#1a1a28'; kRoundRect(ctx, -43,-10,7,14,3); ctx.fill();
-      ctx.fillStyle=col+'99';
-      ctx.beginPath(); ctx.ellipse(-39.5,-3,2.5,4.5,0.3*Math.sin(t*0.08),0,Math.PI*2); ctx.fill();
-      ctx.restore();
-
-      // Key glow bloom
-      ctx.save(); ctx.globalCompositeOperation='screen';
-      const bloom=ctx.createRadialGradient(90,114,4,90,114,44);
-      bloom.addColorStop(0,col+'33'); bloom.addColorStop(1,'transparent');
-      ctx.fillStyle=bloom; ctx.beginPath(); ctx.arc(90,114,44,0,Math.PI*2); ctx.fill();
-      ctx.globalCompositeOperation='source-over'; ctx.restore();
+      const kbT=H*0.72;
+      drawKeyboard(kbT,7,[3],col,0.7+0.3*Math.sin(t*0.14));
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('First Notes',W/2,kbT-4); ctx.restore();
     },
 
-    // ── LEVEL 5: Rock Bassist ─────────────────────────────────────
-    bass: function() {
-      bg('#0a0c0e','#020304');
-      spotlight(90, 24, 165, col, 0.64+0.13*Math.sin(t*0.04));
-      spotlight(14, 12, 114, '#ff6633', 0.38+0.08*Math.cos(t*0.05));
-      spotlight(166, 12, 114, '#ff6633', 0.35+0.07*Math.sin(t*0.045));
-      const fy = 136; stageFloor(fy, col); crowd(fy+8, [col,'#ff6633','#ffcc00']);
-      halo(90, 66, 58, col, 0.3+0.1*Math.sin(t*0.05));
+    // ── LEVEL 2: Note Spotter — two crossing stage spotlights, cool focused kid ──
+    drums: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg2=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg2.addColorStop(0,'#0a1020'); bg2.addColorStop(1,'#020408');
+      ctx.fillStyle=bg2; ctx.fillRect(0,0,W,H);
 
-      // ═══ ROCK BASSIST — full body, clear P-bass, proper arm anatomy ═══
-      // Bass hangs low (rock style). Left hand frets up neck (reaching UP-LEFT).
-      // Right arm hangs down toward bridge (plucking).
-
-      // Legs — wide rock stance
-      ctx.fillStyle='#1a1630';
-      ctx.beginPath(); ctx.moveTo(84,106); ctx.bezierCurveTo(80,118,76,128,72,136); ctx.lineTo(82,136); ctx.bezierCurveTo(84,128,87,118,89,106); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(96,106); ctx.bezierCurveTo(100,118,104,128,108,136); ctx.lineTo(118,136); ctx.bezierCurveTo(116,128,112,118,106,108); ctx.closePath(); ctx.fill();
-      // Boots
-      ctx.fillStyle='#0c0a14';
-      ctx.beginPath(); ctx.ellipse(75,136,11,4,0.25,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(112,136,11,4,-0.25,0,Math.PI*2); ctx.fill();
-
-      // Belt
-      ctx.fillStyle='#1a1428'; kRoundRect(ctx, 79,104,22,4,2); ctx.fill();
-      ctx.fillStyle='#c0a030'; kRoundRect(ctx, 87,103,8,6,1.5); ctx.fill();
-      ctx.fillStyle='#806010'; kRoundRect(ctx, 89,105,4,2,1); ctx.fill();
-
-      // Torso — dark band tee
-      ctx.fillStyle='#161018';
-      ctx.beginPath(); ctx.moveTo(80,104); ctx.bezierCurveTo(76,94,76,80,80,70);
-      ctx.bezierCurveTo(83,62,90,60,90,60); ctx.bezierCurveTo(90,60,97,62,100,70);
-      ctx.bezierCurveTo(104,80,104,94,100,104); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle='#22181e'; ctx.lineWidth=1; ctx.stroke();
-      // Band logo circle on shirt
-      ctx.strokeStyle=col+'55'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.arc(90,86,9,0,Math.PI*2); ctx.stroke();
-      ctx.fillStyle=col+'33'; ctx.beginPath(); ctx.arc(90,86,9,0,Math.PI*2); ctx.fill();
-
-      // Neck
-      ctx.fillStyle='#c09060';
-      kRoundRect(ctx, 86,58,8,14,4); ctx.fill();
-
-      // Head — rocker, long hair
-      ctx.fillStyle='#0e0a06';
-      ctx.beginPath(); ctx.arc(90,46,14,0,Math.PI*2); ctx.fill();
-      // Hair strands
-      ctx.strokeStyle='#1a1008'; ctx.lineWidth=3;
-      for(let h=0;h<5;h++){
-        const ha=-1.0+h*0.4;
-        ctx.beginPath(); ctx.moveTo(90,34); ctx.bezierCurveTo(90+16*Math.cos(ha),34+16*Math.sin(ha),90+22*Math.cos(ha+0.15),46+22*Math.sin(ha+0.15),90+20*Math.cos(ha+0.25),54+16*Math.sin(ha+0.25)); ctx.stroke();
-      }
-      // Face
-      ctx.fillStyle='#c09060';
-      ctx.beginPath(); ctx.ellipse(90,48,9,11,0,0,Math.PI*2); ctx.fill();
-      // Eyes
-      ctx.fillStyle='#1a1010';
-      ctx.beginPath(); ctx.ellipse(86,47,3,2,0,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(94,47,3,2,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(255,255,255,0.5)';
-      ctx.beginPath(); ctx.arc(87,46,1,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(95,46,1,0,Math.PI*2); ctx.fill();
-      // Eyebrows
-      ctx.strokeStyle='#0e0a06'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(83,44); ctx.lineTo(89,43); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(91,43); ctx.lineTo(97,44); ctx.stroke();
-      // Mouth
-      ctx.strokeStyle='#884030'; ctx.lineWidth=1.8;
-      ctx.beginPath(); ctx.arc(90,56,4,0.2,Math.PI-0.2); ctx.stroke();
-
-      // ── BASS GUITAR (P-bass, strapped low) ──
-      ctx.save(); ctx.translate(90,86); ctx.rotate(0.1);
-      // Body
-      const bG=ctx.createRadialGradient(2,4,3,2,4,26);
-      bG.addColorStop(0,col+'ee'); bG.addColorStop(0.5,col+'aa'); bG.addColorStop(1,col+'33');
-      ctx.fillStyle=bG;
-      ctx.beginPath();
-      ctx.moveTo(-2,24); ctx.bezierCurveTo(-16,22,-22,12,-20,0);
-      ctx.bezierCurveTo(-18,-10,-12,-16,-4,-16);
-      ctx.bezierCurveTo(-2,-22,-6,-30,-2,-34);
-      ctx.bezierCurveTo(2,-38,8,-34,8,-28);
-      ctx.bezierCurveTo(8,-20,4,-16,10,-14);
-      ctx.bezierCurveTo(18,-10,20,-2,18,10);
-      ctx.bezierCurveTo(16,20,8,24,2,26);
-      ctx.bezierCurveTo(0,26,-1,24,-2,24);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle=col; ctx.lineWidth=1.8; ctx.stroke();
-      // Contour sheen
-      ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(-16,-2); ctx.bezierCurveTo(-20,6,-18,16,-10,22); ctx.stroke();
-      // Pickguard
-      ctx.fillStyle='rgba(235,235,225,0.72)';
-      ctx.beginPath(); ctx.moveTo(-1,-14); ctx.lineTo(6,-12); ctx.lineTo(8,8); ctx.lineTo(2,20); ctx.lineTo(-4,18); ctx.lineTo(-8,8); ctx.closePath(); ctx.fill();
-      // Split-coil pickup (P-bass signature)
-      ctx.fillStyle='#111';
-      kRoundRect(ctx, -2,-4,7,5,1.5); ctx.fill();
-      kRoundRect(ctx, 0,2,7,5,1.5); ctx.fill();
-      ctx.strokeStyle='#333'; ctx.lineWidth=0.7;
-      kRoundRect(ctx, -2,-4,7,5,1.5); ctx.stroke();
-      kRoundRect(ctx, 0,2,7,5,1.5); ctx.stroke();
-      // Pole pieces
-      for(let p=0;p<4;p++){ctx.fillStyle='#666'; ctx.beginPath(); ctx.arc(0+p*1.6,-2,0.9,0,Math.PI*2); ctx.fill();}
-      for(let p=0;p<4;p++){ctx.fillStyle='#666'; ctx.beginPath(); ctx.arc(2+p*1.6,4,0.9,0,Math.PI*2); ctx.fill();}
-      // Bridge
-      ctx.fillStyle='#686868'; kRoundRect(ctx, -2,14,12,6,2); ctx.fill();
-      for(let s=0;s<4;s++){ctx.fillStyle='#a0a0a0'; kRoundRect(ctx, -1+s*3,14,2,5,1); ctx.fill();}
-      // Neck
-      const nG=ctx.createLinearGradient(-3.5,-16,3.5,-16);
-      nG.addColorStop(0,'#261408'); nG.addColorStop(0.5,'#543018'); nG.addColorStop(1,'#261408');
-      ctx.fillStyle=nG;
-      ctx.beginPath(); ctx.moveTo(-4,-16); ctx.lineTo(-3.5,-74); ctx.lineTo(3.5,-74); ctx.lineTo(4,-16); ctx.closePath(); ctx.fill();
-      // Frets
-      ctx.strokeStyle='rgba(180,160,120,0.8)'; ctx.lineWidth=1;
-      for(let f=0;f<11;f++){const fy=-20-f*5; ctx.beginPath(); ctx.moveTo(-3.5,fy); ctx.lineTo(3.5,fy); ctx.stroke();}
-      ctx.fillStyle='rgba(220,200,160,0.8)';
-      for(let d of [2,4,6]){ctx.beginPath(); ctx.arc(0,-23-d*5,1.8,0,Math.PI*2); ctx.fill();}
-      // Headstock
-      ctx.fillStyle='#1c0e04';
-      ctx.beginPath(); ctx.moveTo(-3.5,-74); ctx.lineTo(-6,-92); ctx.lineTo(6,-92); ctx.lineTo(3.5,-74); ctx.closePath(); ctx.fill();
-      ctx.fillStyle='#c0a060';
-      for(let tt=0;tt<2;tt++){
-        kRoundRect(ctx, -10,-78-tt*9,5,8,2); ctx.fill();
-        kRoundRect(ctx, 5,-78-tt*9,5,8,2); ctx.fill();
-      }
-      // 4 strings
-      for(let s=0;s<4;s++){
-        ctx.strokeStyle=`rgba(190,180,140,${0.75-s*0.1})`; ctx.lineWidth=2.2-s*0.35;
-        ctx.beginPath(); ctx.moveTo(-2+s*1.5,-74); ctx.lineTo(-1+s*1.5,18); ctx.stroke();
-      }
-      ctx.restore();
-
-      // ── ARMS — L arm reaches UP-LEFT to fret, R arm hangs down to pluck ──
-      // Bass is centred ~90,86 rotated 0.1
-      // Neck goes up-left. Headstock ~(68,20). Fretting hand reaches to mid-neck ~(74,38).
-      // Bridge area ~(100,100). Plucking hand ~(108,104).
-      ctx.strokeStyle='#c09060'; ctx.lineWidth=10; ctx.lineCap='round';
-      // LEFT ARM: shoulder(80,74) → elbow(70,64) → fret hand(74,40)
-      ctx.beginPath(); ctx.moveTo(80,74); ctx.lineTo(70,66); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(70,66); ctx.lineTo(74,42); ctx.stroke();
-      ctx.fillStyle='#c09060';
-      ctx.beginPath(); ctx.arc(74,42,5,0,Math.PI*2); ctx.fill();
-      // Fretting fingers
-      ctx.strokeStyle='#a07840'; ctx.lineWidth=2.5;
-      for(let f=0;f<4;f++){ctx.beginPath(); ctx.moveTo(71+f*1.5,38); ctx.lineTo(70+f*1.5,33); ctx.stroke();}
-
-      // RIGHT ARM: shoulder(100,74) → elbow(112,82) → pluck hand(110,100)
-      const pluck=3*Math.sin(t*0.14);
-      ctx.strokeStyle='#c09060'; ctx.lineWidth=10;
-      ctx.beginPath(); ctx.moveTo(100,74); ctx.lineTo(112,80); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(112,80); ctx.lineTo(110,100+pluck); ctx.stroke();
-      ctx.fillStyle='#c09060';
-      ctx.beginPath(); ctx.arc(110,100+pluck,5,0,Math.PI*2); ctx.fill();
-    },
-
-    // ── LEVEL 6: Glamorous Singer ─────────────────────────────────
-    singer: function() {
-      bg('#100810','#030206');
-      spotlight(90, 28, 172, col, 0.72+0.16*Math.sin(t*0.05));
-      spotlight(18, 14, 128, '#ffaa22', 0.46+0.1*Math.cos(t*0.04));
-      spotlight(162, 14, 128, '#aa44ff', 0.46+0.1*Math.sin(t*0.04));
-      const fy = 136; stageFloor(fy, col); crowd(fy+8, [col,'#ffaa22','#aa44ff','#fff']);
-
-      const pulse=0.38+0.22*Math.sin(t*0.07);
-      halo(90, 66, 68, col, pulse);
-
-      // ═══ GLAMOROUS SINGER — clear person, arms in natural singing pose ═══
-      // Classic singer pose: one arm UP holding mic, other arm OUT at 45° (not flailing)
-
-      // Floor glow
-      ctx.save(); ctx.globalCompositeOperation='screen';
-      const pool=ctx.createRadialGradient(90,136,0,90,136,36);
-      pool.addColorStop(0,col+'44'); pool.addColorStop(1,'transparent');
-      ctx.fillStyle=pool; ctx.beginPath(); ctx.ellipse(90,136,36,12,0,0,Math.PI*2); ctx.fill();
-      ctx.globalCompositeOperation='source-over'; ctx.restore();
-
-      // Wide glamorous dress
-      const dG=ctx.createLinearGradient(70,82,110,136);
-      dG.addColorStop(0,col+'ee'); dG.addColorStop(0.3,col+'cc'); dG.addColorStop(0.7,col+'88'); dG.addColorStop(1,col+'44');
-      ctx.fillStyle=dG;
-      ctx.beginPath(); ctx.moveTo(83,86); ctx.bezierCurveTo(78,98,64,114,52,136);
-      ctx.lineTo(128,136); ctx.bezierCurveTo(116,114,102,98,97,86); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle=col+'44'; ctx.lineWidth=1; ctx.stroke();
-      // Sparkle
-      ctx.save(); ctx.globalCompositeOperation='screen';
-      for(let g=0;g<14;g++){
-        const gx=58+g*6, gy=102+((t*0.55+g*13)%36);
-        const ga=0.35+0.4*Math.sin(t*0.12+g*0.8);
-        ctx.fillStyle=`rgba(255,255,255,${ga})`;
-        ctx.beginPath(); ctx.arc(gx,gy,1.2,0,Math.PI*2); ctx.fill();
-      }
-      ctx.globalCompositeOperation='source-over'; ctx.restore();
-      // Centre highlight
-      ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(90,88); ctx.bezierCurveTo(88,106,85,120,84,136); ctx.stroke();
-
-      // Bodice
-      const boG=ctx.createLinearGradient(82,66,98,90);
-      boG.addColorStop(0,col); boG.addColorStop(1,col+'aa');
-      ctx.fillStyle=boG;
-      ctx.beginPath(); ctx.moveTo(83,86); ctx.bezierCurveTo(81,78,81,70,84,66);
-      ctx.bezierCurveTo(87,62,93,62,96,66); ctx.bezierCurveTo(99,70,99,78,97,86); ctx.closePath(); ctx.fill();
-      // Neckline
-      ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(84,66); ctx.bezierCurveTo(87,64,93,64,96,66); ctx.stroke();
-
-      // Neck + necklace
-      ctx.fillStyle='#d4a880';
-      kRoundRect(ctx, 86,60,8,10,4); ctx.fill();
-      ctx.strokeStyle='#e8c030'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.arc(90,68,7,0.45,Math.PI-0.45); ctx.stroke();
-      ctx.fillStyle='#f0d040';
-      ctx.beginPath(); ctx.arc(90,75,2.5,0,Math.PI*2); ctx.fill();
-
-      // Head — glamorous
-      ctx.fillStyle='#241408';
-      ctx.beginPath(); ctx.arc(90,46,15,0,Math.PI*2); ctx.fill();
-      // Flowing hair right side
-      ctx.beginPath(); ctx.moveTo(103,50); ctx.bezierCurveTo(110,58,112,72,108,84);
-      ctx.bezierCurveTo(106,88,103,90,101,90); ctx.bezierCurveTo(106,78,108,64,105,54); ctx.closePath(); ctx.fill();
-      ctx.fillStyle='#2e1808';
-      ctx.beginPath(); ctx.arc(87,42,5,0,Math.PI); ctx.fill();
-      ctx.beginPath(); ctx.arc(93,42,5,0,Math.PI); ctx.fill();
-      ctx.fillStyle='#d4a880';
-      ctx.beginPath(); ctx.ellipse(90,51,9,11,0,0,Math.PI*2); ctx.fill();
-      // Makeup eyes
-      ctx.fillStyle='#080608';
-      ctx.beginPath(); ctx.ellipse(85,49,4.5,2.8,0,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(95,49,4.5,2.8,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#4090ee';
-      ctx.beginPath(); ctx.arc(85,49,2,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(95,49,2,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(255,255,255,0.65)';
-      ctx.beginPath(); ctx.arc(86,48,0.9,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(96,48,0.9,0,Math.PI*2); ctx.fill();
-      // Eyelashes
-      ctx.strokeStyle='#080608'; ctx.lineWidth=1.2;
-      for(let e=0;e<5;e++){ctx.beginPath(); ctx.moveTo(82+e,46.5); ctx.lineTo(81+e*0.8,43.5); ctx.stroke();}
-      for(let e=0;e<5;e++){ctx.beginPath(); ctx.moveTo(92+e,46.5); ctx.lineTo(91+e*0.8,43.5); ctx.stroke();}
-      ctx.fillStyle='rgba(110,50,170,0.3)';
-      ctx.beginPath(); ctx.ellipse(85,47,5,3,0,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(95,47,5,3,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(220,90,100,0.25)';
-      ctx.beginPath(); ctx.arc(83,54,5,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(97,54,5,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#e02858';
-      ctx.beginPath(); ctx.ellipse(90,58,5.5,3,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(255,80,110,0.5)';
-      ctx.beginPath(); ctx.ellipse(90,57,3.5,1.5,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#3a0e10';
-      ctx.beginPath(); ctx.ellipse(90,59,4,2.5,0,0.1,Math.PI-0.1); ctx.fill();
-      // Earrings
-      ctx.fillStyle='#e8c030';
-      ctx.beginPath(); ctx.arc(79,52,2,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(101,52,2,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#e8c030'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(79,54); ctx.lineTo(79,60); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(101,54); ctx.lineTo(101,60); ctx.stroke();
-      ctx.fillStyle='#f0e060';
-      ctx.beginPath(); ctx.arc(79,62,2.5,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(101,62,2.5,0,Math.PI*2); ctx.fill();
-
-      // ── ARMS — natural singing pose ──
-      // RIGHT arm: raised, holding mic up near mouth. Elbow up and OUT.
-      // Shoulder(98,70) → elbow(114,62) → hand(118,50)  [arm raised at side]
-      const armBob=Math.sin(t*0.045)*6;
-      ctx.strokeStyle='#d4a880'; ctx.lineWidth=9; ctx.lineCap='round';
-      // Right upper arm
-      ctx.beginPath(); ctx.moveTo(98,70); ctx.lineTo(114,64+armBob*0.4); ctx.stroke();
-      // Right forearm (comes up toward face level)
-      ctx.beginPath(); ctx.moveTo(114,64+armBob*0.4); ctx.lineTo(118,50+armBob); ctx.stroke();
-      // Right hand
-      ctx.fillStyle='#d4a880';
-      ctx.beginPath(); ctx.arc(118,50+armBob,5,0,Math.PI*2); ctx.fill();
-
-      // LEFT arm: out to side at roughly 45°, elbow slightly bent — expressive but controlled
-      // Shoulder(82,70) → elbow(68,76) → hand(58,70)
-      ctx.strokeStyle='#d4a880'; ctx.lineWidth=9;
-      ctx.beginPath(); ctx.moveTo(82,70); ctx.lineTo(68,78); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(68,78); ctx.lineTo(56,72+armBob*0.5); ctx.stroke();
-      ctx.fillStyle='#d4a880';
-      ctx.beginPath(); ctx.arc(56,72+armBob*0.5,5,0,Math.PI*2); ctx.fill();
-
-      // Handheld microphone in right hand
-      ctx.save(); ctx.translate(120,50+armBob); ctx.rotate(0.25);
-      const mhG=ctx.createLinearGradient(-2,0,2,0);
-      mhG.addColorStop(0,'#383838'); mhG.addColorStop(0.4,'#888'); mhG.addColorStop(1,'#282828');
-      ctx.fillStyle=mhG; kRoundRect(ctx, -2.5,2,5,15,2); ctx.fill();
-      const grG=ctx.createRadialGradient(-1.5,-4,1,-1.5,-4,7);
-      grG.addColorStop(0,'#aaa'); grG.addColorStop(0.5,'#666'); grG.addColorStop(1,'#303030');
-      ctx.fillStyle=grG; ctx.beginPath(); ctx.arc(0,-2,7,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#181818'; ctx.lineWidth=0.8; ctx.stroke();
-      ctx.fillStyle='rgba(255,255,255,0.22)'; ctx.beginPath(); ctx.arc(-2,-4,3,0,Math.PI*2); ctx.fill();
-      ctx.restore();
-
-      // Sound waves from mic
-      ctx.save(); ctx.globalCompositeOperation='screen';
-      for(let r=0;r<5;r++){
-        const rd=(t*1.1+r*18)%68;
-        const bx=126+rd*0.5, by=48+armBob-rd*0.3;
-        const a=Math.max(0,0.7-rd/68);
-        ctx.beginPath(); ctx.arc(bx,by,rd*0.35+2,0,Math.PI*2);
-        ctx.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${a})`;
-        ctx.lineWidth=1.8; ctx.stroke();
-      }
-      ctx.globalCompositeOperation='source-over'; ctx.restore();
-    },
-
-    // ── LEVEL 7: Blues Guitarist (ref: hunched man with hat, guitar across lap) ─
-    guitar: function() {
-      bg('#080608','#010102');
-      spotlight(90, 22, 162, col, 0.72+0.16*Math.sin(t*0.05));
-      spotlight(40, 14, 120, '#ffaa44', 0.38+0.08*Math.cos(t*0.04));
-      const fy = 140; stageFloor(fy, col); crowd(fy+8, [col,'#ffaa44','#ff4422']);
-      halo(90, 65, 58, col, 0.38+0.12*Math.sin(t*0.05));
-
-      // ═══ Based on reference: man hunched forward over guitar, hat on, 
-      // guitar angled across body/lap, both hands clearly on guitar.
-      // Seated/crouched posture. Head bowed toward guitar. ═══
-
-      // ── SEATED FIGURE — hunched forward ──
-      // Stool/seat suggestion
-      ctx.fillStyle='#1a1420';
-      kRoundRect(ctx, 74,118,32,6,3); ctx.fill();
-      ctx.strokeStyle='#444'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(78,124); ctx.lineTo(75,140); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(102,124); ctx.lineTo(105,140); ctx.stroke();
-
-      // Legs (seated, feet forward)
-      ctx.fillStyle='#181428';
-      // Left leg
-      ctx.beginPath(); ctx.moveTo(80,118); ctx.bezierCurveTo(76,128,72,134,68,140); ctx.lineTo(80,140); ctx.bezierCurveTo(82,134,84,128,86,118); ctx.closePath(); ctx.fill();
-      // Right leg
-      ctx.beginPath(); ctx.moveTo(96,118); ctx.bezierCurveTo(100,128,104,134,108,140); ctx.lineTo(116,140); ctx.bezierCurveTo(114,134,110,128,104,120); ctx.closePath(); ctx.fill();
-      // Boots
-      ctx.fillStyle='#0c0a12';
-      ctx.beginPath(); ctx.ellipse(72,140,11,4,0.2,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(110,140,10,4,-0.15,0,Math.PI*2); ctx.fill();
-
-      // Torso — hunched forward, coat/jacket
-      // Hunched: torso top leans FORWARD (toward viewer) — shift top of torso forward
-      const jG=ctx.createLinearGradient(76,58,104,118);
-      jG.addColorStop(0,'#1c1a2c'); jG.addColorStop(0.5,'#141220'); jG.addColorStop(1,'#0e0c18');
-      ctx.fillStyle=jG;
-      ctx.beginPath();
-      // Torso shape: hunched so top leans left/forward
-      ctx.moveTo(80,116); ctx.bezierCurveTo(75,104,74,88,76,74);
-      ctx.bezierCurveTo(78,62,86,56,90,56);
-      ctx.bezierCurveTo(94,56,100,60,102,70);
-      ctx.bezierCurveTo(106,84,106,102,102,116);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle='#242238'; ctx.lineWidth=1; ctx.stroke();
-      // Jacket lapels
-      ctx.fillStyle='#222036';
-      ctx.beginPath(); ctx.moveTo(90,56); ctx.lineTo(80,68); ctx.lineTo(83,86); ctx.lineTo(90,82); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(90,56); ctx.lineTo(100,68); ctx.lineTo(97,86); ctx.lineTo(90,82); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle='#2e2c44'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(80,68); ctx.lineTo(90,56); ctx.lineTo(100,68); ctx.stroke();
-      // Shirt visible
-      ctx.fillStyle='#f0f0f0';
-      ctx.beginPath(); ctx.moveTo(84,68); ctx.lineTo(90,62); ctx.lineTo(96,68); ctx.lineTo(93,82); ctx.lineTo(87,82); ctx.closePath(); ctx.fill();
-      // Jacket stripe/detail
-      ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(78,78); ctx.lineTo(76,100); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(102,78); ctx.lineTo(104,100); ctx.stroke();
-
-      // ── NECK ──
-      ctx.fillStyle='#b08050';
-      kRoundRect(ctx, 86,54,8,12,4); ctx.fill();
-
-      // ── HEAD — bowed forward and slightly left (looking at guitar), hat on ──
-      ctx.save();
-      ctx.translate(88, 44);
-      ctx.rotate(0.25); // head bowed toward guitar (leaning forward)
-
-      // Face / head
-      ctx.fillStyle='#b08050';
-      ctx.beginPath(); ctx.ellipse(0,2,9,12,0,0,Math.PI*2); ctx.fill();
-      // Beard (blues guitarist look)
-      ctx.fillStyle='#1a1010';
-      ctx.beginPath(); ctx.ellipse(0,10,8,6,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#242020';
-      ctx.beginPath(); ctx.ellipse(0,10,6,4,0,0,Math.PI*2); ctx.fill();
-      // Eyes (half-closed, focused)
-      ctx.fillStyle='#1a1010';
-      ctx.beginPath(); ctx.ellipse(-3,0,3.5,1.8,0,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(3.5,0,3.5,1.8,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(255,255,255,0.4)';
-      ctx.beginPath(); ctx.arc(-2,-0.5,1,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(4.5,-0.5,1,0,Math.PI*2); ctx.fill();
-      // Eyebrows (furrowed, intense)
-      ctx.strokeStyle='#1a1010'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(-6,-4); ctx.quadraticCurveTo(-3,-6,0,-4); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0,-4); ctx.quadraticCurveTo(3,-6,6,-4); ctx.stroke();
-      // Nose
-      ctx.strokeStyle='#906030'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(-1,3); ctx.bezierCurveTo(1,5,2,7,1,9); ctx.stroke();
-      // Mouth (slightly open, intense expression)
-      ctx.fillStyle='#3a1a0a';
-      ctx.beginPath(); ctx.ellipse(0,13,4,2.5,0,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#804030'; ctx.lineWidth=1.2;
-      ctx.beginPath(); ctx.arc(0,12,4,0.1,Math.PI-0.1); ctx.stroke();
-
-      // ── HAT (like reference: wide-brim fedora, sat low on head) ──
-      const hG=ctx.createLinearGradient(-20,-22,20,-22);
-      hG.addColorStop(0,'#141210'); hG.addColorStop(0.3,'#282420'); hG.addColorStop(0.5,'#201e1a'); hG.addColorStop(0.7,'#282420'); hG.addColorStop(1,'#141210');
-      // Brim — wide (like reference)
-      ctx.fillStyle=hG;
-      ctx.beginPath(); ctx.ellipse(0,-12,22,5,0,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#0a0908'; ctx.lineWidth=0.8; ctx.stroke();
-      ctx.fillStyle='#1a1816'; ctx.beginPath(); ctx.ellipse(0,-11,20,4,0,0,Math.PI); ctx.fill();
-      // Crown (lower, like reference hat)
-      const cG=ctx.createLinearGradient(-10,-30,10,-12);
-      cG.addColorStop(0,'#282420'); cG.addColorStop(0.5,'#1c1a16'); cG.addColorStop(1,'#141210');
-      ctx.fillStyle=cG;
-      ctx.beginPath(); ctx.moveTo(-10,-12); ctx.bezierCurveTo(-10,-24,-7,-28,0,-29); ctx.bezierCurveTo(7,-28,10,-24,10,-12); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle='#0a0908'; ctx.lineWidth=0.8; ctx.stroke();
-      // Hat band
-      ctx.fillStyle='#3a3020'; kRoundRect(ctx, -9,-16,18,3,0); ctx.fill();
-      // Crown dent (like reference)
-      ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0,-28,3,2,0,0,Math.PI*2); ctx.fill();
-      // Hat sheen
-      ctx.strokeStyle='rgba(255,255,255,0.07)'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(-7,-24); ctx.bezierCurveTo(-8,-18,-8,-14,-7,-12); ctx.stroke();
-      ctx.restore();
-
-      // ── GUITAR — arched-top / jazz guitar across lap, angled ──
-      // Reference: large-body guitar held across body, neck going up-right
-      ctx.save();
-      ctx.translate(90,96);
-      ctx.rotate(-0.32); // guitar tilted: body lower-left, neck upper-right
-
-      const gColA=col+'ee', gColB=col+'88', gColC=col+'33';
-      const gG=ctx.createRadialGradient(0,5,4,0,5,30);
-      gG.addColorStop(0,gColA); gG.addColorStop(0.5,gColB); gG.addColorStop(1,gColC);
-      ctx.fillStyle=gG;
-
-      // Body — arched-top guitar (round, like reference jazz/blues guitar)
-      // Lower bout
-      ctx.beginPath(); ctx.ellipse(0,14,22,18,0,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle=col; ctx.lineWidth=2; ctx.stroke();
-      // Upper bout (smaller)
-      ctx.beginPath(); ctx.ellipse(0,-10,16,14,0,0,Math.PI*2); ctx.fill();
-      ctx.stroke();
-      // Waist cutaway between bouts
-      ctx.fillStyle=gColB;
-      ctx.beginPath(); ctx.ellipse(0,2,9,7,0,0,Math.PI*2); ctx.fill();
-      // f-holes (jazz guitar signature — like reference)
-      ctx.strokeStyle='rgba(20,10,0,0.8)'; ctx.lineWidth=2; ctx.lineCap='round';
-      // Left f-hole
-      ctx.beginPath(); ctx.moveTo(-10,4); ctx.bezierCurveTo(-12,8,-12,12,-10,14); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(-10,4); ctx.bezierCurveTo(-8,0,-8,-4,-10,-4); ctx.stroke();
-      ctx.fillStyle='rgba(20,10,0,0.6)';
-      ctx.beginPath(); ctx.arc(-10,-4,2,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(-10,14,2,0,Math.PI*2); ctx.fill();
-      // Right f-hole
-      ctx.strokeStyle='rgba(20,10,0,0.8)'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(10,4); ctx.bezierCurveTo(12,8,12,12,10,14); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(10,4); ctx.bezierCurveTo(8,0,8,-4,10,-4); ctx.stroke();
-      ctx.fillStyle='rgba(20,10,0,0.6)';
-      ctx.beginPath(); ctx.arc(10,-4,2,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(10,14,2,0,Math.PI*2); ctx.fill();
-      // Tailpiece (bottom)
-      ctx.fillStyle='#404040';
-      kRoundRect(ctx, -6,26,12,8,3); ctx.fill();
-      // Bridge
-      ctx.fillStyle='#302010';
-      kRoundRect(ctx, -7,8,14,4,2); ctx.fill();
-      // Sound bar / binding
-      ctx.strokeStyle='rgba(200,180,140,0.4)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.ellipse(0,14,23,19,0,0,Math.PI*2); ctx.stroke();
-      // Body contour sheen
-      ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1.8;
-      ctx.beginPath(); ctx.moveTo(-16,6); ctx.bezierCurveTo(-20,14,-18,24,-12,28); ctx.stroke();
-
-      // Neck (long, goes upper-right in this rotation)
-      const nkG=ctx.createLinearGradient(-3.5,-24,3.5,-24);
-      nkG.addColorStop(0,'#241408'); nkG.addColorStop(0.5,'#503018'); nkG.addColorStop(1,'#201008');
-      ctx.fillStyle=nkG;
-      ctx.beginPath(); ctx.moveTo(-4,-22); ctx.lineTo(-3.5,-80); ctx.lineTo(3.5,-80); ctx.lineTo(4,-22); ctx.closePath(); ctx.fill();
-      // Frets
-      ctx.strokeStyle='rgba(180,160,120,0.7)'; ctx.lineWidth=1;
-      for(let f=0;f<12;f++){const fy=-26-f*4.5; ctx.beginPath(); ctx.moveTo(-3.5,fy); ctx.lineTo(3.5,fy); ctx.stroke();}
-      // Position dots
-      ctx.fillStyle='rgba(210,190,150,0.8)';
-      for(let d of [2,4,6,9]){ctx.beginPath(); ctx.arc(0,-29-d*4.5,1.5,0,Math.PI*2); ctx.fill();}
-      // Headstock (Venetian / rounded)
-      ctx.fillStyle='#1c0e06';
-      ctx.beginPath(); ctx.moveTo(-3.5,-80); ctx.bezierCurveTo(-5,-92,-4,-100,-2,-104); ctx.bezierCurveTo(0,-106,2,-106,4,-104); ctx.bezierCurveTo(6,-100,5,-92,3.5,-80); ctx.closePath(); ctx.fill();
-      // Tuning pegs (3 per side)
-      ctx.fillStyle='#c0a060';
-      for(let p=0;p<3;p++){
-        kRoundRect(ctx, -9,-84-p*7,5,6,2); ctx.fill();
-        kRoundRect(ctx, 4,-84-p*7,5,6,2); ctx.fill();
-      }
-      // Strings (6)
-      for(let s=0;s<6;s++){
-        ctx.strokeStyle=`rgba(190,180,140,${0.78-s*0.08})`; ctx.lineWidth=1.5-s*0.14;
-        ctx.beginPath(); ctx.moveTo(-2.5+s,-80); ctx.lineTo(-2+s,28); ctx.stroke();
-      }
-      ctx.restore();
-
-      // ── ARMS — like reference: right hand on neck (frets), left strums/picks near body ──
-      // Guitar is centred ~(90,96), rotated -0.32. 
-      // Neck goes upper-right. Fret zone ~world (112,52).
-      // Body lower area ~world (70,112) for strumming.
-      const strumA = 4*Math.sin(t*0.15);
-      ctx.strokeStyle='#b08050'; ctx.lineWidth=10; ctx.lineCap='round';
-      // RIGHT ARM (fretting — up to neck): shoulder(98,72) → elbow(108,62) → hand(114,50)
-      ctx.beginPath(); ctx.moveTo(98,72); ctx.lineTo(108,60); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(108,60); ctx.lineTo(116,50); ctx.stroke();
-      ctx.fillStyle='#b08050'; ctx.beginPath(); ctx.arc(116,50,5,0,Math.PI*2); ctx.fill();
-      // Fretting fingers
-      ctx.strokeStyle='#906030'; ctx.lineWidth=2.5;
-      for(let f=0;f<4;f++){ctx.beginPath(); ctx.moveTo(113+f*1.5,46); ctx.lineTo(112+f*1.5,41); ctx.stroke();}
-
-      // LEFT ARM (strumming — down to body): shoulder(82,72) → elbow(76,90) → hand(70,108+strumA)
-      ctx.strokeStyle='#b08050'; ctx.lineWidth=10;
-      ctx.beginPath(); ctx.moveTo(82,72); ctx.lineTo(76,90); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(76,90); ctx.lineTo(70,108+strumA); ctx.stroke();
-      ctx.fillStyle='#b08050'; ctx.beginPath(); ctx.arc(70,108+strumA,5,0,Math.PI*2); ctx.fill();
-      // Pick in strumming hand
-      ctx.fillStyle='#ff8020';
-      ctx.save(); ctx.translate(70,108+strumA); ctx.rotate(strumA*0.1-0.4);
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(7,-4); ctx.lineTo(9,4); ctx.closePath(); ctx.fill();
-      ctx.restore();
-    },
-
-    // ── LEVEL 8: Jazz Saxophonist (ref: leaning forward over sax, wide-brim hat) ─
-    trumpet: function() {
-      bg('#060408','#010102');
-      spotlight(90, 20, 165, '#f0c840', 0.62+0.12*Math.sin(t*0.04));
-      spotlight(30, 14, 138, col, 0.42+0.08*Math.cos(t*0.035));
-      spotlight(150, 14, 138, '#e88020', 0.4+0.08*Math.sin(t*0.04));
-      const fy = 140; stageFloor(fy, '#e8c060'); crowd(fy+8, [col,'#e8c060','#e88020']);
-      halo(90, 68, 66, '#f0c840', 0.36+0.12*Math.sin(t*0.05));
-
-      // ═══ Based on reference painting: man leaning FORWARD and DOWN over sax.
-      // Wide-brim hat. Head bowed. Sax held in FRONT of body pointing DOWN-RIGHT.
-      // Both hands clearly on the sax. Intense, close-in posture. ═══
-
-      // Floor shadow
-      ctx.fillStyle='rgba(0,0,0,0.5)';
-      ctx.beginPath(); ctx.ellipse(92,140,28,6,0,0,Math.PI*2); ctx.fill();
-
-      // Legs (standing, leaning forward)
-      ctx.fillStyle='#181c2a';
-      ctx.beginPath(); ctx.moveTo(82,112); ctx.bezierCurveTo(78,122,76,132,74,140); ctx.lineTo(84,140); ctx.bezierCurveTo(85,132,87,122,88,112); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(98,112); ctx.bezierCurveTo(102,122,104,132,106,140); ctx.lineTo(96,140); ctx.bezierCurveTo(93,122,92,122,92,112); ctx.closePath(); ctx.fill();
-      // Shoes
-      ctx.fillStyle='#0c0a14';
-      ctx.beginPath(); ctx.moveTo(72,138); ctx.bezierCurveTo(68,140,66,143,71,144); ctx.bezierCurveTo(76,145,84,144,85,141); ctx.lineTo(84,138); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(108,138); ctx.bezierCurveTo(112,140,114,143,109,144); ctx.bezierCurveTo(104,145,96,144,95,141); ctx.lineTo(96,138); ctx.closePath(); ctx.fill();
-      // Shoe shine
-      ctx.fillStyle='rgba(255,255,255,0.07)';
-      ctx.beginPath(); ctx.ellipse(74,140,4,2,0.3,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(108,140,4,2,-0.3,0,Math.PI*2); ctx.fill();
-
-      // ── TORSO — leaning forward strongly (top of body tilts toward viewer/sax) ──
-      const jG=ctx.createLinearGradient(74,50,106,112);
-      jG.addColorStop(0,'#1a1c2c'); jG.addColorStop(0.5,'#121420'); jG.addColorStop(1,'#0c0e18');
-      ctx.fillStyle=jG;
-      ctx.beginPath();
-      // Leaning forward: top of torso shifted left and down
-      ctx.moveTo(80,110); ctx.bezierCurveTo(75,96,73,78,76,64);
-      ctx.bezierCurveTo(79,52,86,46,90,46);
-      ctx.bezierCurveTo(94,46,100,50,102,62);
-      ctx.bezierCurveTo(106,76,106,96,102,110);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle='#20222e'; ctx.lineWidth=1; ctx.stroke();
-      // Jacket lapels
-      ctx.fillStyle='#20223a';
-      ctx.beginPath(); ctx.moveTo(90,46); ctx.lineTo(80,58); ctx.lineTo(83,78); ctx.lineTo(90,74); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(90,46); ctx.lineTo(100,58); ctx.lineTo(97,78); ctx.lineTo(90,74); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle='#2a2c42'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(80,58); ctx.lineTo(90,46); ctx.lineTo(100,58); ctx.stroke();
-      // Shirt + tie
-      ctx.fillStyle='#f0f0ec';
-      ctx.beginPath(); ctx.moveTo(84,58); ctx.lineTo(90,52); ctx.lineTo(96,58); ctx.lineTo(93,74); ctx.lineTo(87,74); ctx.closePath(); ctx.fill();
-      ctx.fillStyle='#e8c030';
-      ctx.beginPath(); ctx.moveTo(88,54); ctx.lineTo(92,54); ctx.lineTo(93,74); ctx.lineTo(90,78); ctx.lineTo(87,74); ctx.closePath(); ctx.fill();
-      ctx.fillStyle='#c09020'; kRoundRect(ctx, 88,52,4,5,1); ctx.fill();
-      // Pocket square
-      ctx.fillStyle='rgba(255,255,255,0.12)'; kRoundRect(ctx, 80,66,8,8,1); ctx.fill();
-      ctx.fillStyle='#e8c030'; ctx.beginPath(); ctx.moveTo(81,66); ctx.lineTo(87,66); ctx.lineTo(86,62); ctx.lineTo(83,61); ctx.closePath(); ctx.fill();
-
-      // ── NECK (leaning forward, neck angled) ──
-      ctx.fillStyle='#c09060';
-      kRoundRect(ctx, 86,44,8,12,4); ctx.fill();
-
-      // ── HEAD — bowed forward, looking DOWN at sax, wide hat ──
-      ctx.save();
-      ctx.translate(90, 36);
-      ctx.rotate(0.35); // head bowed forward/down like reference
-
-      // Face
-      ctx.fillStyle='#c09060';
-      ctx.beginPath(); ctx.ellipse(-1,2,9,12,0,0,Math.PI*2); ctx.fill();
-      // Beard (reference shows beard)
-      ctx.fillStyle='#1a1010';
-      ctx.beginPath(); ctx.ellipse(-1,11,8,5,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#251818'; ctx.beginPath(); ctx.ellipse(-1,11,6,3.5,0,0,Math.PI*2); ctx.fill();
-      // Eyes (downcast — looking at sax)
-      ctx.fillStyle='#1a1010';
-      ctx.beginPath(); ctx.ellipse(-4,1,3.5,1.8,0,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(3,1,3.5,1.8,0,0,Math.PI*2); ctx.fill();
-      // Eyebrows
-      ctx.strokeStyle='#1a1010'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(-7,-3); ctx.quadraticCurveTo(-4,-5,0,-3); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0,-3); ctx.quadraticCurveTo(4,-5,6,-3); ctx.stroke();
-      // Lips at mouthpiece
-      ctx.fillStyle='#b04830';
-      ctx.beginPath(); ctx.ellipse(-1,14,4,2.5,0,0,Math.PI*2); ctx.fill();
-      // Cheeks puffed (blowing)
-      ctx.fillStyle='rgba(180,100,60,0.18)';
-      ctx.beginPath(); ctx.arc(-7,7,5,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(5,7,5,0,Math.PI*2); ctx.fill();
-
-      // ── WIDE-BRIM FEDORA (like reference — very wide, sat on head) ──
-      const hG=ctx.createLinearGradient(-24,0,24,0);
-      hG.addColorStop(0,'#0e0c0a'); hG.addColorStop(0.25,'#201e1a'); hG.addColorStop(0.5,'#181614'); hG.addColorStop(0.75,'#201e1a'); hG.addColorStop(1,'#0e0c0a');
-      // Brim — very wide like reference
-      ctx.fillStyle=hG;
-      ctx.beginPath(); ctx.ellipse(0,-11,25,6,0,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#080806'; ctx.lineWidth=0.8; ctx.stroke();
-      ctx.fillStyle='#181614'; ctx.beginPath(); ctx.ellipse(0,-10,23,5,0,0,Math.PI); ctx.fill();
-      // Front brim dips slightly (like reference — brim turned down at front)
-      ctx.fillStyle=hG;
-      ctx.beginPath(); ctx.ellipse(-8,-8,12,4,0.3,Math.PI,Math.PI*2); ctx.fill();
-      // Crown
-      const crG=ctx.createLinearGradient(-10,-28,10,-11);
-      crG.addColorStop(0,'#201e1a'); crG.addColorStop(0.4,'#181614'); crG.addColorStop(1,'#0e0c0a');
-      ctx.fillStyle=crG;
-      ctx.beginPath(); ctx.moveTo(-10,-11); ctx.bezierCurveTo(-10,-22,-7,-27,0,-28); ctx.bezierCurveTo(7,-27,10,-22,10,-11); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle='#080806'; ctx.lineWidth=0.8; ctx.stroke();
-      // Crown indent (like reference)
-      ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,-27,3.5,2,0,0,Math.PI*2); ctx.fill();
-      // Hat band (subtle)
-      ctx.fillStyle='#2a2820'; kRoundRect(ctx, -9,-15,18,3,0); ctx.fill();
-      // Sheen on hat
-      ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(-8,-22); ctx.bezierCurveTo(-9,-17,-9,-13,-8,-11); ctx.stroke();
-      ctx.restore();
-
-      // ── TENOR SAXOPHONE — in front of body, pointing DOWN-RIGHT ──
-      // In reference: sax is held in front, bell pointing lower-right, mouthpiece upper-left near face.
-      ctx.save();
-      ctx.translate(86, 78);
-      ctx.rotate(-0.42); // bell tilts lower-right, neck/mouth upper-left
-
-      const gold0='#f5d060', gold1='#e8b830', gold2='#c89820', gold3='#a07010', gold4='#7a5808';
-      const bodyGrad=ctx.createLinearGradient(-14,0,14,0);
-      bodyGrad.addColorStop(0,gold4); bodyGrad.addColorStop(0.12,gold2); bodyGrad.addColorStop(0.28,gold0);
-      bodyGrad.addColorStop(0.5,gold1); bodyGrad.addColorStop(0.72,gold0); bodyGrad.addColorStop(0.88,gold2); bodyGrad.addColorStop(1,gold4);
-
-      // MAIN BODY TUBE (conical, gets wider toward bell)
-      ctx.strokeStyle=bodyGrad; ctx.lineWidth=13; ctx.lineCap='round';
-      ctx.beginPath(); ctx.moveTo(0,-42); ctx.lineTo(2,-18); ctx.lineTo(4,16); ctx.stroke();
-      ctx.lineWidth=15;
-      ctx.beginPath(); ctx.moveTo(4,16); ctx.bezierCurveTo(5,30,0,40,-10,44); ctx.stroke();
-      ctx.lineWidth=13;
-      ctx.beginPath(); ctx.moveTo(-10,44); ctx.bezierCurveTo(-20,46,-22,36,-18,24); ctx.stroke();
-
-      // BELL — wide, flared
-      const bellG=ctx.createRadialGradient(-14,42,4,-14,42,22);
-      bellG.addColorStop(0,gold0); bellG.addColorStop(0.4,gold1); bellG.addColorStop(0.7,gold2); bellG.addColorStop(1,gold4);
-      ctx.fillStyle=bellG;
-      ctx.beginPath(); ctx.ellipse(-14,42,22,14,0.2,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle=gold3; ctx.lineWidth=2; ctx.stroke();
-      // Bell interior
-      ctx.fillStyle='rgba(6,3,0,0.88)';
-      ctx.beginPath(); ctx.ellipse(-14,42,17,11,0.2,0,Math.PI*2); ctx.fill();
-      // Bell rim highlight
-      ctx.strokeStyle='rgba(255,245,180,0.5)'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.ellipse(-15,40,14,9,0.2,0,Math.PI); ctx.stroke();
-      // Bell engraving
-      ctx.strokeStyle=gold3; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.ellipse(-14,42,20,13,0.2,0,Math.PI*2); ctx.stroke();
-
-      // NECK CROOK
-      const nkGrad=ctx.createLinearGradient(-6,-42,6,-42);
-      nkGrad.addColorStop(0,gold3); nkGrad.addColorStop(0.3,gold1); nkGrad.addColorStop(0.7,gold0); nkGrad.addColorStop(1,gold3);
-      ctx.strokeStyle=nkGrad; ctx.lineWidth=8;
-      ctx.beginPath(); ctx.moveTo(0,-42); ctx.bezierCurveTo(4,-54,10,-60,16,-64); ctx.stroke();
-      ctx.lineWidth=6;
-      ctx.beginPath(); ctx.moveTo(16,-64); ctx.bezierCurveTo(20,-66,24,-66,26,-64); ctx.stroke();
-
-      // MOUTHPIECE
-      ctx.fillStyle='#1a0808';
-      ctx.beginPath(); ctx.ellipse(28,-63,5,3.5,0.45,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#2a1010'; ctx.lineWidth=0.8; ctx.stroke();
-      ctx.fillStyle='#c8a860';
-      ctx.beginPath(); ctx.ellipse(29,-62,2,5,0.45,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle=gold1; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.arc(24,-64,4,0,Math.PI*2); ctx.stroke();
-
-      // KEY CUPS — right side of body
-      [{x:8,y:-34,r:5.5},{x:9,y:-20,r:5.5},{x:10,y:-6,r:6},{x:10,y:8,r:5.5},{x:9,y:22,r:5}].forEach(function(k){
-        ctx.fillStyle=gold2; ctx.beginPath(); ctx.arc(k.x,k.y,k.r+2,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle=gold1; ctx.beginPath(); ctx.arc(k.x,k.y,k.r,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle='#d09870'; ctx.beginPath(); ctx.arc(k.x,k.y,k.r*0.7,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle=gold3; ctx.lineWidth=0.8; ctx.beginPath(); ctx.arc(k.x,k.y,k.r,0,Math.PI*2); ctx.stroke();
-        ctx.fillStyle='rgba(255,250,200,0.35)'; ctx.beginPath(); ctx.arc(k.x-1,k.y-1.5,k.r*0.38,0,Math.PI*2); ctx.fill();
-      });
-      // Left side keys (low register)
-      [{x:-14,y:32,r:5},{x:-16,y:20,r:4.5},{x:-16,y:8,r:4.5}].forEach(function(k){
-        ctx.fillStyle=gold2; ctx.beginPath(); ctx.arc(k.x,k.y,k.r+2,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle=gold1; ctx.beginPath(); ctx.arc(k.x,k.y,k.r,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle='#d09870'; ctx.beginPath(); ctx.arc(k.x,k.y,k.r*0.7,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle=gold3; ctx.lineWidth=0.8; ctx.beginPath(); ctx.arc(k.x,k.y,k.r,0,Math.PI*2); ctx.stroke();
-        ctx.fillStyle='rgba(255,250,200,0.3)'; ctx.beginPath(); ctx.arc(k.x-1,k.y-1.5,k.r*0.38,0,Math.PI*2); ctx.fill();
-      });
-      // Key rods
-      ctx.strokeStyle=gold2; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(9,-34); ctx.lineTo(9,24); ctx.stroke();
-      ctx.strokeStyle=gold1; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(-15,8); ctx.lineTo(-15,34); ctx.stroke();
-      // Rod caps
-      [{x:9,y:-34},{x:9,y:24},{x:-15,y:8},{x:-15,y:34}].forEach(function(p){
-        ctx.fillStyle=gold1; ctx.beginPath(); ctx.arc(p.x,p.y,2,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle=gold3; ctx.lineWidth=0.7; ctx.stroke();
-      });
-      // Thumb rest + strap ring
-      ctx.fillStyle='#a0a090'; kRoundRect(ctx, -4,10,8,5,2); ctx.fill();
-      ctx.strokeStyle=gold2; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.arc(-2,-8,3.5,0,Math.PI*2); ctx.stroke();
-      // Strap
-      ctx.strokeStyle='#1a1a2a'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(-2,-11); ctx.bezierCurveTo(-5,-20,-8,-28,-12,-34); ctx.stroke();
-      // Body sheen
-      ctx.strokeStyle='rgba(255,248,180,0.4)'; ctx.lineWidth=2.5;
-      ctx.beginPath(); ctx.moveTo(-2,-40); ctx.lineTo(0,-18); ctx.lineTo(1,14); ctx.stroke();
-      ctx.strokeStyle='rgba(255,248,180,0.18)'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.moveTo(-4,-38); ctx.lineTo(-3,-16); ctx.lineTo(-2,12); ctx.stroke();
-      ctx.restore();
-
-      // ── ARMS — leaning over sax, both hands on it ──
-      // Sax translate(86,78) rotate(-0.42). Bell is lower-right of body, neck upper-left.
-      // Right hand on upper body keys: approx world (96,56)
-      // Left hand on lower body keys: approx world (76,106)
-      ctx.strokeStyle='#c09060'; ctx.lineWidth=10; ctx.lineCap='round';
-      // RIGHT ARM (upper keys): shoulder(96,62) → elbow(102,52) → hand(96,56)
-      ctx.beginPath(); ctx.moveTo(96,62); ctx.lineTo(104,52); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(104,52); ctx.lineTo(98,56); ctx.stroke();
-      ctx.fillStyle='#c09060'; ctx.beginPath(); ctx.arc(98,56,5,0,Math.PI*2); ctx.fill();
-      // Right hand fingers on upper keys
-      ctx.strokeStyle='#a07840'; ctx.lineWidth=2.5;
-      for(let f=0;f<3;f++){ctx.beginPath(); ctx.moveTo(95+f*2,52); ctx.lineTo(94+f*2,48); ctx.stroke();}
-
-      // LEFT ARM (lower keys): shoulder(80,66) → elbow(72,86) → hand(74,104)
-      ctx.strokeStyle='#c09060'; ctx.lineWidth=10;
-      ctx.beginPath(); ctx.moveTo(80,66); ctx.lineTo(72,86); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(72,86); ctx.lineTo(74,104); ctx.stroke();
-      ctx.fillStyle='#c09060'; ctx.beginPath(); ctx.arc(74,104,5,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#a07840'; ctx.lineWidth=2.5;
-      for(let f=0;f<3;f++){ctx.beginPath(); ctx.moveTo(71+f*2,108); ctx.lineTo(70+f*2,112); ctx.stroke();}
-
-      // MUSIC NOTES from BELL (pointing lower-right in world space)
-      // Bell world coords: translate(86,78) + rotate(-0.42) + (-14,42)
-      // ≈ 86 + (-14*cos(-0.42) - 42*sin(-0.42)), 78 + (-14*sin(-0.42) + 42*cos(-0.42))
-      // ≈ 86 + (-13 + 17), 78 + (6 + 38) = (90, 122) — lower body area
-      const noteSyms=['♩','♪','♫','♬'];
-      for(let n=0;n<5;n++){
-        const age=(t*0.55+n*18)%72;
-        const bx=92+age*0.5+n*4, by=122+age*0.4+n*2;
-        const alpha=Math.max(0,1-age/72);
+      // ── TWO CROSSING STAGE SPOTLIGHTS ──
+      const kx2=W/2, poolY2=H*0.76;
+      const sp2aOrigin = W*0.2 + Math.sin(t*0.031)*W*0.15; // left spot source
+      const sp2bOrigin = W*0.8 + Math.cos(t*0.025)*W*0.15; // right spot source
+      const poolRad2 = W*0.28;
+      [
+        {ox: sp2aOrigin, col2:'rgba(255,240,160,0.45)', pcol:'rgba(255,235,140,0.18)'},
+        {ox: sp2bOrigin, col2:'rgba(160,220,255,0.45)', pcol:'rgba(140,210,255,0.18)'}
+      ].forEach(sp => {
         ctx.save(); ctx.globalCompositeOperation='screen';
-        ctx.fillStyle=`rgba(240,200,80,${alpha})`;
-        ctx.font=`bold ${13-n*1.5}px serif`; ctx.fillText(noteSyms[n%4],bx,by);
-        ctx.globalCompositeOperation='source-over'; ctx.restore();
-      }
-    },
-
-    // ── LEVEL 9: Full Band ────────────────────────────────────────
-    fullband: function() {
-      bg('#080810','#020208');
-      const lights=['#ff2255','#ffdd00','#00ccff','#cc44ff','#ff7700','#00ffaa'];
-      for(let l=0;l<6;l++){
-        const lx=12+l*30;
-        const sweep=16*Math.sin(t*0.04+l*0.85);
-        spotlight(lx, 14+Math.abs(sweep)*0.2, 165, lights[l], 0.44+0.12*Math.sin(t*0.06+l));
-      }
-      const fy=130; stageFloor(fy, col); crowd(fy+8, lights);
-
-      // 5 band members, each with recognisable mini-instrument
-      const members=[
-        {x:22,  role:'bass',     c:'#ffa726', lbl:'BASS'},
-        {x:57,  role:'guitar',   c:col,       lbl:'GTR'},
-        {x:90,  role:'singer',   c:'#ff2255', lbl:'VOX'},
-        {x:124, role:'keys',     c:'#cc44ff', lbl:'KEYS'},
-        {x:158, role:'drums',    c:'#00ccff', lbl:'DRM'},
-      ];
-
-      members.forEach(function(m){
-        const bob=2.5*Math.sin(t*0.07+m.x*0.038);
-        const mc=hexRgb(m.c);
-        // Per-member floor glow
-        ctx.save();ctx.globalCompositeOperation='screen';
-        const mg=ctx.createRadialGradient(m.x,fy,0,m.x,fy,28);
-        mg.addColorStop(0,`rgba(${mc.r},${mc.g},${mc.b},0.65)`);
-        mg.addColorStop(1,'transparent');
-        ctx.fillStyle=mg;ctx.beginPath();ctx.arc(m.x,fy,28,0,Math.PI*2);ctx.fill();
-        ctx.globalCompositeOperation='source-over';ctx.restore();
-
-        const py=105+bob;
-
-        // Body & head
-        ctx.fillStyle='#0a0812';
-        ctx.beginPath();ctx.ellipse(m.x,py,7,10,0,0,Math.PI*2);ctx.fill();
-        ctx.beginPath();ctx.arc(m.x,py-17,6,0,Math.PI*2);ctx.fill();
-        // Outfit colour flash
-        ctx.fillStyle=m.c+'55';
-        ctx.beginPath();ctx.ellipse(m.x,py,6,9,0,0,Math.PI*2);ctx.fill();
-
-        // Role-specific instrument (mini but clearly shaped)
-        ctx.save();
-        ctx.translate(m.x, py-2+bob);
-
-        if (m.role==='bass'||m.role==='guitar') {
-          // Mini guitar/bass body
-          const gCol = m.c;
-          ctx.fillStyle=gCol+'cc';
-          ctx.beginPath();
-          ctx.ellipse(10,4,8,11,0.35,0,Math.PI*2);ctx.fill();
-          ctx.strokeStyle=gCol;ctx.lineWidth=1.2;ctx.stroke();
-          // Upper horn
-          ctx.beginPath();ctx.bezierCurveTo(2,-6,-5,-14,-1,-18);ctx.bezierCurveTo(3,-20,7,-16,7,-10);ctx.stroke();
-          // Neck
-          ctx.strokeStyle=gCol+'aa';ctx.lineWidth=2.5;
-          ctx.beginPath();ctx.moveTo(4,-8);ctx.lineTo(2,-34);ctx.stroke();
-          // Headstock
-          ctx.fillStyle=gCol+'88';kRoundRect(ctx, -2,-38,8,6,2);ctx.fill();
-          // Strings
-          ctx.strokeStyle='rgba(200,190,160,0.6)';ctx.lineWidth=0.7;
-          for(let s=0;s<(m.role==='bass'?4:6);s++){ctx.beginPath();ctx.moveTo(2+s*(m.role==='bass'?1.5:1),-8);ctx.lineTo(3+s*(m.role==='bass'?1.5:1),10);ctx.stroke();}
-          // Pickup
-          ctx.fillStyle='#111';kRoundRect(ctx, 4,0,10,4,1);ctx.fill();
-
-        } else if (m.role==='singer') {
-          // Mini mic stand
-          ctx.strokeStyle='#666';ctx.lineWidth=2;
-          ctx.beginPath();ctx.moveTo(0,14);ctx.lineTo(0,-6);ctx.stroke();
-          ctx.strokeStyle='#555';ctx.lineWidth=2;
-          ctx.beginPath();ctx.moveTo(-8,14);ctx.lineTo(8,14);ctx.stroke();
-          // Mic head
-          const mgrd=ctx.createRadialGradient(0,-8,1,0,-8,5);
-          mgrd.addColorStop(0,'#aaa');mgrd.addColorStop(1,'#444');
-          ctx.fillStyle=mgrd;
-          ctx.beginPath();ctx.arc(0,-8,5,0,Math.PI*2);ctx.fill();
-          ctx.strokeStyle='#222';ctx.lineWidth=0.8;ctx.stroke();
-          // Arm raised
-          ctx.strokeStyle=m.c+'99';ctx.lineWidth=5;
-          ctx.beginPath();ctx.moveTo(4,-8+bob);ctx.quadraticCurveTo(12,-14+bob,16,-18+bob);ctx.stroke();
-
-        } else if (m.role==='keys') {
-          // Mini keyboard
-          ctx.fillStyle='#1e1e2e';
-          kRoundRect(ctx, -14,-4,28,12,2);ctx.fill();
-          ctx.strokeStyle='#404055';ctx.lineWidth=0.8;ctx.stroke();
-          // White keys
-          for(let k=0;k<8;k++){
-            const kActive=Math.floor(t*0.1)%8===k;
-            ctx.fillStyle=kActive?m.c+'cc':'#f0eef8';
-            kRoundRect(ctx, -13+k*3.4,-3,3,10,1);ctx.fill();
-          }
-          // Black keys
-          for(let k of [0,1,3,4,5]){
-            ctx.fillStyle='#1a1428';
-            kRoundRect(ctx, -11.5+k*3.4,-3,2,6,1);ctx.fill();
-          }
-          // Stand arms
-          ctx.strokeStyle=m.c+'88';ctx.lineWidth=4;
-          ctx.beginPath();ctx.moveTo(-6,-4);ctx.quadraticCurveTo(-12,-10,-14,-16);ctx.stroke();
-          ctx.beginPath();ctx.moveTo(6,-4);ctx.quadraticCurveTo(12,-10,14,-16);ctx.stroke();
-
-        } else if (m.role==='drums') {
-          // Mini drum kit (kick + snare + cymbal)
-          // Kick
-          ctx.fillStyle='#1a1228';
-          ctx.beginPath();ctx.ellipse(6,8,9,7,0,0,Math.PI*2);ctx.fill();
-          ctx.strokeStyle=m.c;ctx.lineWidth=1.5;ctx.stroke();
-          // Snare
-          ctx.fillStyle='#c0c0c0';
-          ctx.beginPath();ctx.ellipse(-6,2,6,4,0,0,Math.PI*2);ctx.fill();
-          ctx.strokeStyle='#888';ctx.lineWidth=1;ctx.stroke();
-          // Cymbal
-          ctx.fillStyle='#c89010';
-          ctx.beginPath();ctx.ellipse(-2,-10,8,2.5,0.1,0,Math.PI*2);ctx.fill();
-          ctx.strokeStyle='#9a7008';ctx.lineWidth=0.8;ctx.stroke();
-          // Stick
-          ctx.strokeStyle='#c4a050';ctx.lineWidth=1.8;
-          const stk=Math.sin(t*0.18+m.x)>0?0.5:-0.3;
-          ctx.save();ctx.translate(-6,2);ctx.rotate(stk);
-          ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-6,-14);ctx.stroke();
-          ctx.restore();
-        }
-
+        ctx.beginPath();
+        ctx.moveTo(sp.ox, 0);
+        ctx.lineTo(kx2 - poolRad2, poolY2);
+        ctx.lineTo(kx2 + poolRad2, poolY2);
+        ctx.closePath();
+        const cg = ctx.createLinearGradient(sp.ox, 0, kx2, poolY2);
+        cg.addColorStop(0, sp.col2);
+        cg.addColorStop(0.35, sp.col2.replace('0.45','0.12'));
+        cg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = cg; ctx.fill();
+        const pg = ctx.createRadialGradient(kx2, poolY2, 0, kx2, poolY2, poolRad2);
+        pg.addColorStop(0, sp.pcol); pg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = pg; ctx.beginPath(); ctx.ellipse(kx2, poolY2, poolRad2, poolRad2*0.25, 0, 0, Math.PI*2); ctx.fill();
         ctx.restore();
-
-        // Name label
-        ctx.fillStyle=m.c+'cc';ctx.font='bold 5px sans-serif';ctx.textAlign='center';
-        ctx.fillText(m.lbl, m.x, fy+5+bob);
       });
 
-      // Sweeping colour haze
-      ctx.save();ctx.globalCompositeOperation='screen';
-      for(let l=0;l<6;l++){
-        const lc=hexRgb(lights[l]);
-        const lx=12+l*30;
-        const a=0.07+0.04*Math.sin(t*0.05+l);
-        const sg=ctx.createRadialGradient(lx,0,0,lx,H*0.5,H*0.52);
-        sg.addColorStop(0,`rgba(${lc.r},${lc.g},${lc.b},${a})`);
-        sg.addColorStop(1,'transparent');
-        ctx.fillStyle=sg;ctx.fillRect(0,0,W,H);
-      }
-      ctx.globalCompositeOperation='source-over';ctx.restore();
+      // Strobe
+      if(Math.sin(t*0.2)>0.97){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,0.12)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
 
-      // Confetti notes floating
-      ctx.save();ctx.globalCompositeOperation='screen';
-      for(let n=0;n<10;n++){
-        const nx=(t*0.55+n*19)%185;
-        const ny=12+((t*0.38+n*23)%108);
-        const lc=hexRgb(lights[n%lights.length]);
-        ctx.fillStyle=`rgba(${lc.r},${lc.g},${lc.b},0.75)`;
-        ctx.font='bold 11px serif';
-        ctx.fillText(['♩','♪','♫','♬'][n%4],nx,ny);
+      // Staff lines floating
+      for(let l=0;l<5;l++){
+        const ly=H*0.13+l*4.5+1.5*Math.sin(t*0.03+l*0.5);
+        ctx.save(); ctx.strokeStyle='rgba(120,180,255,0.5)'; ctx.lineWidth=0.9;
+        ctx.beginPath(); ctx.moveTo(6,ly); ctx.lineTo(W-6,ly); ctx.stroke(); ctx.restore();
       }
-      ctx.globalCompositeOperation='source-over';ctx.restore();
-    }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 2',W/2,12); ctx.restore();
+
+      // ── Cool focused kid — no gross mouth, proper look ──
+      const bob2=2*Math.sin(t*0.09); const tilt=0.07*Math.sin(t*0.07);
+      const kx=W/2, ky=H*0.42+bob2;
+      ctx.save(); ctx.translate(kx,ky); ctx.rotate(tilt);
+      // Body — cool dark hoodie
+      ctx.fillStyle='#1a3060'; ctx.beginPath(); ctx.ellipse(0,10,11,14,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#223375';
+      ctx.beginPath(); ctx.roundRect(-6,8,12,8,3); ctx.fill();
+      // Head
+      ctx.fillStyle='#e0a868'; ctx.beginPath(); ctx.arc(0,-12,10,0,Math.PI*2); ctx.fill();
+      // Cool hair swept forward — concentrating lean
+      ctx.fillStyle='#1a0c04';
+      ctx.beginPath(); ctx.ellipse(-1,-21,10,5,0.15,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-7,-17,4,6,0.45,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(4,-19,5,4,-0.2,0,Math.PI*2); ctx.fill();
+      // Squinting determined eyes — no mouth issue
+      ctx.strokeStyle='#3a2010'; ctx.lineWidth=2.2; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(-5.5,-12.5); ctx.quadraticCurveTo(-3,-14,-0.5,-12.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0.5,-12.5); ctx.quadraticCurveTo(3,-14,5.5,-12.5); ctx.stroke();
+      // Small pupils peeking under squint
+      ctx.fillStyle='#1a1a1a'; ctx.beginPath(); ctx.arc(-3,-12,1.2,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3,-12,1.2,0,Math.PI*2); ctx.fill();
+      // Determined thin line mouth — not red lips
+      ctx.strokeStyle='#8a5030'; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(-3,-7); ctx.lineTo(3,-7); ctx.stroke();
+      // Arms reaching to keyboard
+      ctx.restore();
+      const reach=3*Math.sin(t*0.1);
+      ctx.strokeStyle='#e0a868'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+4); ctx.quadraticCurveTo(kx-22,ky+14+reach,kx-19,ky+30); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+4); ctx.quadraticCurveTo(kx+22,ky+14-reach,kx+19,ky+30); ctx.stroke();
+      ctx.fillStyle='#e0a868'; ctx.beginPath(); ctx.arc(kx-19,ky+31,3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+19,ky+31,3,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#1a3060'; ctx.lineWidth=6; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+23); ctx.lineTo(kx-4,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+23); ctx.lineTo(kx+4,ky+32); ctx.stroke();
+
+      // Moving note on staff
+      const snx=(t*0.6)%(W-16)+8;
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=col;
+      ctx.beginPath(); ctx.ellipse(snx,H*0.15,4,3,-0.3,0,Math.PI*2); ctx.fill(); ctx.restore();
+
+      const seq=[0,2,4,6,5,3,1]; const si=Math.floor(t/30)%7;
+      const kbT2=H*0.72;
+      drawKeyboard(kbT2,7,[seq[si],(seq[si]+3)%7],col,1);
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Note Spotter',W/2,kbT2-4); ctx.restore();
+    },
+
+    // ── LEVEL 3: Treble Clef Scout — headphones kid, clef, moonballs, roaming beam ──
+    sax: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg3=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg3.addColorStop(0,'#0c0820'); bg3.addColorStop(1,'#030108');
+      ctx.fillStyle=bg3; ctx.fillRect(0,0,W,H);
+
+      // Roaming moonbeam sweeping
+      const mb3x=W*0.5+Math.sin(t*0.022)*W*0.44;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const mbg3=ctx.createRadialGradient(mb3x,-2,0,mb3x,H*0.58,H*0.75);
+      mbg3.addColorStop(0,'rgba(200,180,255,0.22)'); mbg3.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=mbg3; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Moonballs
+      for(let m=0;m<3;m++){
+        const mx=W*(0.15+m*0.35)+5*Math.sin(t*0.05+m*0.9);
+        const my=H*(0.1+0.15*Math.abs(Math.sin(t*0.07+m*0.7)));
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        const mg=ctx.createRadialGradient(mx-2,my-2,0,mx,my,8);
+        mg.addColorStop(0,'rgba(255,255,255,0.9)'); mg.addColorStop(0.3,col+'cc'); mg.addColorStop(1,col+'00');
+        ctx.fillStyle=mg; ctx.beginPath(); ctx.arc(mx,my,8,0,Math.PI*2); ctx.fill(); ctx.restore();
+      }
+
+      // Big treble clef floating, bobbing
+      const clefBob=5*Math.sin(t*0.05);
+      ctx.save(); ctx.globalAlpha=0.88+0.12*Math.sin(t*0.06); ctx.fillStyle=col;
+      ctx.font='40px Georgia,serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.shadowColor=col; ctx.shadowBlur=20;
+      ctx.fillText('𝄞',W*0.72,H*0.26+clefBob); ctx.restore();
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 3',W/2,12); ctx.restore();
+
+      // ── Kid with headphones — bopping side to side ──
+      const bop=4*Math.sin(t*0.1); const lean=0.1*Math.sin(t*0.1);
+      const kx=W*0.38, ky=H*0.43+bop*0.4;
+      ctx.save(); ctx.translate(kx,ky); ctx.rotate(lean);
+      ctx.fillStyle='#201840'; ctx.beginPath(); ctx.ellipse(0,10,11,14,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#d09070'; ctx.beginPath(); ctx.arc(0,-11,10,0,Math.PI*2); ctx.fill();
+      // Headphones
+      ctx.strokeStyle='#333'; ctx.lineWidth=3.5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(0,-13,12,Math.PI*1.05,Math.PI*1.95); ctx.stroke();
+      ctx.fillStyle='#222'; ctx.beginPath(); ctx.arc(-11,-11,5,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(11,-11,5,0,Math.PI*2); ctx.fill();
+      // Light on headphones pulsing
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const hp=0.5+0.5*Math.sin(t*0.15);
+      ctx.fillStyle=`rgba(0,200,255,${hp})`; ctx.beginPath(); ctx.arc(-11,-11,3,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=`rgba(255,50,200,${hp})`; ctx.beginPath(); ctx.arc(11,-11,3,0,Math.PI*2); ctx.fill(); ctx.restore();
+      // Closed happy eyes bouncing
+      ctx.strokeStyle='#442211'; ctx.lineWidth=2; ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(-3.5,-11,3,Math.PI*0.08,Math.PI*0.92); ctx.stroke();
+      ctx.beginPath(); ctx.arc(3.5,-11,3,Math.PI*0.08,Math.PI*0.92); ctx.stroke();
+      ctx.strokeStyle='#cc2244'; ctx.lineWidth=1.8;
+      ctx.beginPath(); ctx.arc(0,-6,3.5,0.15,Math.PI-0.15); ctx.stroke();
+      // Arms up and moving with music
+      ctx.strokeStyle='#d09070'; ctx.lineWidth=5; ctx.lineCap='round';
+      const lArm=5*Math.sin(t*0.1+0.5); const rArm=5*Math.sin(t*0.1);
+      ctx.beginPath(); ctx.moveTo(-9,4); ctx.lineTo(-18,-4+lArm); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(9,4); ctx.lineTo(18,-4-rArm); ctx.stroke();
+      ctx.strokeStyle='#1a1030'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(-4,22); ctx.lineTo(-4,32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(4,22); ctx.lineTo(4,32); ctx.stroke();
+      ctx.restore();
+
+      // Orbiting notes
+      for(let n=0;n<4;n++){
+        const ang=t*0.06+n*(Math.PI/2);
+        const nx=kx+Math.cos(ang)*32, ny=ky+Math.sin(ang)*18;
+        ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=col; ctx.font='12px serif'; ctx.textAlign='center';
+        ctx.shadowColor=col; ctx.shadowBlur=7; ctx.fillText(['♩','♪','♫','♬'][n],nx,ny); ctx.restore();
+      }
+
+      const kbT3=H*0.72;
+      drawKeyboard(kbT3,7,[Math.floor(t/40)%7],col,0.9);
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Treble Clef Scout',W/2,kbT3-4); ctx.restore();
+    },
+
+    // ── LEVEL 4: Staff Reader — cool sunglasses teen, confident sway ──
+    keys: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg4=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg4.addColorStop(0,'#080c1c'); bg4.addColorStop(1,'#020308');
+      ctx.fillStyle=bg4; ctx.fillRect(0,0,W,H);
+
+      // Blue roaming spotlight
+      const sp4x=W*0.5+Math.sin(t*0.024)*W*0.42;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const spg4=ctx.createRadialGradient(sp4x,-2,0,sp4x,H*0.55,H*0.72);
+      spg4.addColorStop(0,'rgba(80,160,255,0.25)'); spg4.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=spg4; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Strobe
+      if(Math.sin(t*0.19)>0.97){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,0.1)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+      // Staff lines with notes
+      for(let l=0;l<5;l++){
+        const ly=H*0.12+l*5+2*Math.sin(t*0.03+l*0.4);
+        ctx.save(); ctx.strokeStyle='rgba(100,160,255,0.45)'; ctx.lineWidth=0.9;
+        ctx.beginPath(); ctx.moveTo(6,ly); ctx.lineTo(W-6,ly); ctx.stroke(); ctx.restore();
+      }
+      drawClefGlyph(14,H*0.185,26,'#5b9bd5',0.7);
+      // Rainbow notes across staff
+      for(let n=0;n<3;n++){
+        const nx=(t*0.55+n*40)%(W-16)+8;
+        const ny=H*0.12+(n%5)*5;
+        ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=RAINBOW[n*2%7]; ctx.font='9px serif';
+        ctx.textAlign='center'; ctx.shadowColor=RAINBOW[n*2%7]; ctx.shadowBlur=5; ctx.fillText('♩',nx,ny); ctx.restore();
+      }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 4',W/2,12); ctx.restore();
+
+      // ── Cool teen — swaying with confidence ──
+      const sway=3*Math.sin(t*0.07); const lean4=0.06*Math.sin(t*0.07);
+      const kx=W/2+sway*0.4, ky=H*0.42;
+      ctx.save(); ctx.translate(kx,ky); ctx.rotate(lean4);
+      // Jacket
+      ctx.fillStyle='#1a1044';
+      ctx.beginPath(); ctx.ellipse(0,10,12,15,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#2a1860';
+      ctx.beginPath(); ctx.moveTo(-12,4); ctx.lineTo(-4,20); ctx.lineTo(0,10); ctx.lineTo(4,20); ctx.lineTo(12,4); ctx.closePath(); ctx.fill();
+      // Head
+      ctx.fillStyle='#d49060'; ctx.beginPath(); ctx.arc(0,-12,10,0,Math.PI*2); ctx.fill();
+      // Cool hair
+      ctx.fillStyle='#0a0a0a';
+      ctx.beginPath(); ctx.ellipse(0,-21,10,5,-0.05,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(6,-18,5,5,0.6,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-5,-19,4,4,-0.2,0,Math.PI*2); ctx.fill();
+      // Sunglasses
+      ctx.fillStyle='rgba(0,0,30,0.92)';
+      ctx.beginPath(); ctx.roundRect(-9,-15,7.5,5,2); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(1.5,-15,7.5,5,2); ctx.fill();
+      ctx.strokeStyle='#aaa'; ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(-1.5,-13); ctx.lineTo(1.5,-13); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-9,-13); ctx.lineTo(-13,-14); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(9,-13); ctx.lineTo(13,-14); ctx.stroke();
+      // Cool smirk
+      ctx.strokeStyle='#882211'; ctx.lineWidth=1.8;
+      ctx.beginPath(); ctx.arc(2,-7,3.5,0.4,Math.PI-0.9); ctx.stroke();
+      // Arms — one on hip, one playing cool
+      ctx.strokeStyle='#d49060'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(-9,4); ctx.lineTo(-16,14); ctx.lineTo(-13,22); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(9,4); ctx.lineTo(18,16); ctx.lineTo(17,26); ctx.stroke();
+      ctx.strokeStyle='#1a1044'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(-4,24); ctx.lineTo(-4,32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(4,24); ctx.lineTo(4,32); ctx.stroke();
+      ctx.restore();
+
+      const kbT4=H*0.72;
+      drawKeyboard(kbT4,7,[Math.floor(t/38)%7,(Math.floor(t/38)+2)%7],col,0.9);
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Staff Reader',W/2,kbT4-4); ctx.restore();
+    },
+
+    // ── LEVEL 5: Bass Explorer — teen, bass smoke, deep space, moonballs ──
+    bass: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg5=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg5.addColorStop(0,'#040410'); bg5.addColorStop(1,'#010106');
+      ctx.fillStyle=bg5; ctx.fillRect(0,0,W,H);
+
+      // Deep space stars
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(let s=0;s<28;s++){
+        const sx=(s*41+11)%W, sy=(s*29+5)%(H*0.82);
+        const sa=0.15+0.4*Math.abs(Math.sin(t*0.035+s*0.55));
+        ctx.fillStyle=`rgba(80,80,255,${sa})`; ctx.beginPath(); ctx.arc(sx,sy,0.6+Math.sin(s)*0.5,0,Math.PI*2); ctx.fill();
+      }
+      ctx.restore();
+
+      // Purple roaming spotlight
+      const sp5x=W*0.5+Math.sin(t*0.021)*W*0.44;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const spg5=ctx.createRadialGradient(sp5x,-2,0,sp5x,H*0.58,H*0.76);
+      spg5.addColorStop(0,'rgba(140,60,255,0.22)'); spg5.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=spg5; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Moonballs rising
+      for(let m=0;m<4;m++){
+        const mx=W*(0.12+m*0.25)+4*Math.sin(t*0.06+m);
+        const my=H*(0.2+0.22*Math.abs(Math.sin(t*0.055+m*0.8)));
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        const mbg=ctx.createRadialGradient(mx-2,my-2,0,mx,my,7+2*Math.sin(t*0.1+m));
+        mbg.addColorStop(0,'rgba(255,255,255,0.85)'); mbg.addColorStop(0.35,col+'cc'); mbg.addColorStop(1,col+'00');
+        ctx.fillStyle=mbg; ctx.beginPath(); ctx.arc(mx,my,7+2*Math.sin(t*0.1+m),0,Math.PI*2); ctx.fill(); ctx.restore();
+      }
+
+      // Bass clef rising like smoke — multiple fading copies
+      for(let b=0;b<3;b++){
+        const ba=(0.7-b*0.22)+0.08*Math.sin(t*0.05+b);
+        const by=H*0.18-b*16+4*Math.sin(t*0.05+b*1.3);
+        const bx=W*0.72+7*Math.sin(t*0.035+b*0.8);
+        ctx.save(); ctx.globalAlpha=ba; ctx.fillStyle=col; ctx.font=`${30-b*7}px Georgia,serif`;
+        ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.shadowColor=col; ctx.shadowBlur=12;
+        ctx.fillText('𝄢',bx,by); ctx.restore();
+      }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 5',W/2,12); ctx.restore();
+
+      // ── Teen — same but with glowing hands ──
+      const bob5=2*Math.sin(t*0.08); const kx=W*0.38, ky=H*0.43+bob5;
+      ctx.fillStyle='#0a0820'; ctx.beginPath(); ctx.ellipse(kx,ky+10,11,15,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#1e1040';
+      ctx.beginPath(); ctx.moveTo(kx-11,ky+5); ctx.lineTo(kx-4,ky+20); ctx.lineTo(kx,ky+10); ctx.lineTo(kx+4,ky+20); ctx.lineTo(kx+11,ky+5); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#c8906a'; ctx.beginPath(); ctx.arc(kx,ky-11,9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#0a0a0a';
+      ctx.beginPath(); ctx.ellipse(kx,ky-20,9,5,-0.1,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+5,ky-17,5,4,0.6,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(0,0,25,0.92)';
+      ctx.beginPath(); ctx.roundRect(kx-8,ky-15,7,5,2); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(kx+1,ky-15,7,5,2); ctx.fill();
+      ctx.strokeStyle='#999'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(kx-1,ky-13); ctx.lineTo(kx+1,ky-13); ctx.stroke();
+      ctx.strokeStyle='#883322'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(kx+2,ky-8,3.5,0.3,Math.PI-0.8); ctx.stroke();
+      ctx.strokeStyle='#c8906a'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+4); ctx.lineTo(kx-19,ky+18); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+4); ctx.lineTo(kx+19,ky+18); ctx.stroke();
+      // Glowing hands — colour shifts
+      const hCol=`hsl(${(t*3)%360},100%,65%)`;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      ctx.fillStyle=hCol+'88';
+      ctx.beginPath(); ctx.arc(kx-19,ky+20,6,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+19,ky+20,6,0,Math.PI*2); ctx.fill(); ctx.restore();
+      ctx.strokeStyle='#0a0820'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+24); ctx.lineTo(kx-4,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+24); ctx.lineTo(kx+4,ky+32); ctx.stroke();
+
+      const bLit=[Math.floor(t/50)%7,(Math.floor(t/50)+4)%7];
+      const kbT5=H*0.72;
+      drawKeyboard(kbT5,7,bLit,col,1);
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Bass Explorer',W/2,kbT5-4); ctx.restore();
+    },
+
+    // ── LEVEL 6: Grand Staff Climber — rockstar, flowing cape, gold everything ──
+    singer: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg6=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg6.addColorStop(0,'#140a00'); bg6.addColorStop(1,'#050200');
+      ctx.fillStyle=bg6; ctx.fillRect(0,0,W,H);
+
+      // Gold sweeping spotlight
+      const gX=W*0.5+Math.sin(t*0.026)*W*0.4;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const gsg=ctx.createRadialGradient(gX,-2,0,gX,H*0.52,H*0.78);
+      gsg.addColorStop(0,'rgba(255,220,0,0.28)'); gsg.addColorStop(0.4,'rgba(255,140,0,0.1)'); gsg.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=gsg; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Gold laser beams shooting up
+      for(let b=0;b<5;b++){
+        const bx=W*(0.08+b*0.21)+6*Math.sin(t*0.04+b*0.9);
+        const ba=0.22+0.12*Math.sin(t*0.05+b*0.8);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.strokeStyle=`rgba(255,210,0,${ba})`; ctx.lineWidth=1.5;
+        ctx.shadowColor='#ffd700'; ctx.shadowBlur=4;
+        ctx.beginPath(); ctx.moveTo(bx,H*0.70); ctx.lineTo(bx+12*Math.sin(b+t*0.02),0); ctx.stroke(); ctx.restore();
+      }
+
+      // Strobe flash
+      if(Math.sin(t*0.22)>0.97){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,220,0,0.12)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+      // Both staves
+      for(let l=0;l<5;l++){
+        ctx.save(); ctx.strokeStyle='rgba(255,195,60,0.4)'; ctx.lineWidth=0.8;
+        ctx.beginPath(); ctx.moveTo(6,H*0.12+l*4); ctx.lineTo(W-6,H*0.12+l*4); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(6,H*0.27+l*4); ctx.lineTo(W-6,H*0.27+l*4); ctx.stroke(); ctx.restore();
+      }
+      drawClefGlyph(13,H*0.18,22,'#e8c97e',0.75);
+      drawBassClef(13,H*0.31,18,'#f0a050',0.7);
+
+      ctx.save(); ctx.fillStyle='#ffd700'; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=12;
+      ctx.fillText('LEVEL 6',W/2,12); ctx.restore();
+
+      // ── Rockstar — cape flowing, fist pumping ──
+      const pump=6*Math.sin(t*0.12); const kx=W/2, ky=H*0.43;
+      // Cape — flowing and animated
+      const capeWave=5*Math.sin(t*0.08);
+      ctx.fillStyle='#7700aa';
+      ctx.beginPath(); ctx.moveTo(kx-10,ky-4);
+      ctx.quadraticCurveTo(kx-30,ky+8+capeWave,kx-22,ky+32+capeWave*0.7);
+      ctx.quadraticCurveTo(kx-12,ky+24,kx-8,ky+14); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#aa00dd';
+      ctx.beginPath(); ctx.moveTo(kx+10,ky-4);
+      ctx.quadraticCurveTo(kx+30,ky+8-capeWave,kx+24,ky+32-capeWave*0.7);
+      ctx.quadraticCurveTo(kx+14,ky+24,kx+8,ky+14); ctx.closePath(); ctx.fill();
+      // Cape inner lining
+      ctx.fillStyle='#ffdd00';
+      ctx.beginPath(); ctx.moveTo(kx-8,ky+8); ctx.quadraticCurveTo(kx-18,ky+18+capeWave*0.5,kx-14,ky+30); ctx.quadraticCurveTo(kx-10,ky+22,kx-6,ky+14); ctx.closePath(); ctx.fill();
+      // Body
+      ctx.fillStyle='#1a0040'; ctx.beginPath(); ctx.ellipse(kx,ky+10,11,14,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#f0f0f0'; ctx.beginPath(); ctx.moveTo(kx-4,ky+4); ctx.lineTo(kx-2,ky+20); ctx.lineTo(kx,ky+12); ctx.lineTo(kx+2,ky+20); ctx.lineTo(kx+4,ky+4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.moveTo(kx-4,ky+2); ctx.lineTo(kx,ky+5); ctx.lineTo(kx+4,ky+2); ctx.lineTo(kx,ky-1); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#d49060'; ctx.beginPath(); ctx.arc(kx,ky-12,9,0,Math.PI*2); ctx.fill();
+      // Rockstar hair — wild spiky
+      ctx.fillStyle='#111';
+      ctx.beginPath(); ctx.ellipse(kx,ky-21,10,5,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx-9,ky-18,4,8,0.45,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+9,ky-18,4,8,-0.45,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx,ky-27,3,5,0,0,Math.PI*2); ctx.fill();
+      // Grin with teeth
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(kx,ky-7.5,4.5,2.5,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#cc2200'; ctx.beginPath(); ctx.arc(kx,ky-8,4.5,0,Math.PI); ctx.fill();
+      ctx.fillStyle='#fff'; ctx.fillRect(kx-4,ky-10,8,2.5);
+      // Conducting arm — fist pumping
+      ctx.strokeStyle='#d49060'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+2); ctx.lineTo(kx-20,ky-8+pump); ctx.stroke();
+      ctx.fillStyle='#d49060'; ctx.beginPath(); ctx.arc(kx-20,ky-10+pump,4.5,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+2); ctx.lineTo(kx+18,ky+18); ctx.stroke();
+      ctx.strokeStyle='#1a0040'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+22); ctx.lineTo(kx-5,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+22); ctx.lineTo(kx+5,ky+32); ctx.stroke();
+
+      // Gold notes floating
+      for(let n=0;n<5;n++){
+        const nx=(t*0.8+n*34)%W; const ny=H*0.38+4*Math.sin(t*0.06+n*0.8);
+        ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,215,0,0.85)';
+        ctx.font='10px serif'; ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=6;
+        ctx.fillText(['♩','♪','♫','♬','♩'][n],nx,ny); ctx.restore();
+      }
+
+      const kbT6=H*0.72;
+      drawKeyboard(kbT6,7,[Math.floor(t/34)%7],'#ffd700',1);
+      ctx.save(); ctx.fillStyle='rgba(255,215,0,0.9)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=8;
+      ctx.fillText('Grand Staff Climber',W/2,kbT6-4); ctx.restore();
+    },
+
+    // ── LEVEL 7: Sharp Eye — psychedelic figure, lasers, strobes ──
+    guitar: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg7=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg7.addColorStop(0,'#050508'); bg7.addColorStop(1,'#010102');
+      ctx.fillStyle=bg7; ctx.fillRect(0,0,W,H);
+
+      // Psychedelic spinning colour wash
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(let r=0;r<7;r++){
+        const ang=t*0.035+r*(Math.PI*2/7);
+        const rc=hexRgb(RAINBOW[r]);
+        const rwg=ctx.createLinearGradient(W/2,H/2,W/2+Math.cos(ang)*W,H/2+Math.sin(ang)*H);
+        rwg.addColorStop(0,`rgba(${rc.r},${rc.g},${rc.b},0.1)`); rwg.addColorStop(1,`rgba(${rc.r},${rc.g},${rc.b},0)`);
+        ctx.fillStyle=rwg; ctx.fillRect(0,0,W,H);
+      }
+      ctx.restore();
+
+      // Fast roaming white spotlight
+      const sp7x=W*0.5+Math.sin(t*0.05)*W*0.46;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const spg7=ctx.createRadialGradient(sp7x,-2,0,sp7x,H*0.48,H*0.68);
+      spg7.addColorStop(0,'rgba(255,255,255,0.2)'); spg7.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=spg7; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Strobe
+      if(Math.sin(t*0.25)>0.95){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+      // Laser grid — criss-crossing
+      for(let l=0;l<6;l++){
+        const lx=W*(0.08+l*0.17); const la=0.28+0.18*Math.sin(t*0.07+l*0.9);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.strokeStyle=RAINBOW[l%7]+Math.floor(la*255).toString(16).padStart(2,'0');
+        ctx.lineWidth=1.2; ctx.shadowColor=RAINBOW[l%7]; ctx.shadowBlur=5;
+        ctx.beginPath(); ctx.moveTo(lx,H*0.68); ctx.lineTo(W*0.5+20*Math.sin(l),0); ctx.stroke(); ctx.restore();
+      }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 7',W/2,12); ctx.restore();
+
+      // ── Psychedelic figure — dancing, lasers from hands ──
+      const dance=5*Math.sin(t*0.11); const kx=W/2+dance*0.5, ky=H*0.42;
+      // Aura
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const aura=ctx.createRadialGradient(kx,ky,2,kx,ky,32);
+      aura.addColorStop(0,RAINBOW[Math.floor(t*0.09)%7]+'55'); aura.addColorStop(1,RAINBOW[Math.floor(t*0.09)%7]+'00');
+      ctx.fillStyle=aura; ctx.beginPath(); ctx.arc(kx,ky,32,0,Math.PI*2); ctx.fill(); ctx.restore();
+      // Body — psychedelic outfit
+      ctx.fillStyle='#0a0820'; ctx.beginPath(); ctx.ellipse(kx,ky+10,11,14,0,0,Math.PI*2); ctx.fill();
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(let p=0;p<5;p++){
+        const pc=RAINBOW[(Math.floor(t*0.07)+p)%7];
+        ctx.fillStyle=pc+'55'; ctx.beginPath(); ctx.ellipse(kx+(p-2)*4.5,ky+8,3,5,p*0.25,0,Math.PI*2); ctx.fill();
+      }
+      ctx.restore();
+      ctx.fillStyle='#c0806a'; ctx.beginPath(); ctx.arc(kx,ky-12,9,0,Math.PI*2); ctx.fill();
+      // Rainbow hair — colour shifts over time
+      const hcol=RAINBOW[Math.floor(t*0.06)%7];
+      ctx.fillStyle=hcol; ctx.beginPath(); ctx.ellipse(kx,ky-22,11,6,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx-11,ky-17,5,9,0.5,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+11,ky-17,5,9,-0.5,0,Math.PI*2); ctx.fill();
+      // Glowing eyes
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const eyc=RAINBOW[(Math.floor(t*0.09)+3)%7];
+      ctx.fillStyle=eyc; ctx.shadowColor=eyc; ctx.shadowBlur=10;
+      ctx.beginPath(); ctx.ellipse(kx-3.5,ky-12,2.8,2.2,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+3.5,ky-12,2.8,2.2,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+      // Huge grin
+      ctx.strokeStyle='#ff4488'; ctx.lineWidth=2; ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(kx,ky-7,4.5,0.1,Math.PI-0.1); ctx.stroke();
+      // Arms out wide — moving with dance
+      const lAx=kx-28+dance, rAx=kx+28-dance, aY=ky+6;
+      ctx.strokeStyle='#c0806a'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+3); ctx.lineTo(lAx,aY); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+3); ctx.lineTo(rAx,aY); ctx.stroke();
+      // Laser beams from both hands — sweeping
+      for(let l2=0;l2<4;l2++){
+        const lc2=RAINBOW[(Math.floor(t*0.1)+l2)%7];
+        const la2=0.6+0.3*Math.sin(t*0.12+l2);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.strokeStyle=lc2+Math.floor(la2*255).toString(16).padStart(2,'0');
+        ctx.lineWidth=1.5; ctx.shadowColor=lc2; ctx.shadowBlur=8;
+        ctx.beginPath(); ctx.moveTo(lAx,aY); ctx.lineTo(-10,H*(0.05+l2*0.12)+10*Math.sin(t*0.1+l2)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(rAx,aY); ctx.lineTo(W+10,H*(0.05+l2*0.12)-10*Math.sin(t*0.1+l2)); ctx.stroke(); ctx.restore();
+      }
+      ctx.strokeStyle='#0a0820'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+22); ctx.lineTo(kx-4,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+22); ctx.lineTo(kx+4,ky+32); ctx.stroke();
+
+      // Sharp symbols raining
+      for(let n=0;n<5;n++){
+        const nx=(t*0.75+n*38)%W; const ny=H*0.07+n*6+5*Math.sin(t*0.08+n);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.fillStyle=RAINBOW[n%7]; ctx.font='13px serif'; ctx.textAlign='center';
+        ctx.shadowColor=RAINBOW[n%7]; ctx.shadowBlur=7; ctx.fillText('♯',nx,ny); ctx.restore();
+      }
+
+      // Psychedelic keyboard
+      const kbT7=H*0.72; const wk7=(W-8)/7;
+      for(let k=0;k<7;k++){
+        const kc=RAINBOW[Math.floor(t*0.12+k*0.95)%7];
+        const kx2=4+k*wk7;
+        ctx.save(); ctx.shadowColor=kc; ctx.shadowBlur=14;
+        const kg=ctx.createLinearGradient(kx2,kbT7,kx2,H-4);
+        kg.addColorStop(0,kc); kg.addColorStop(1,kc+'33');
+        ctx.fillStyle=kg; ctx.beginPath(); ctx.roundRect(kx2+1,kbT7,wk7-2,H-kbT7-4,[0,0,4,4]); ctx.fill(); ctx.restore();
+      }
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Sharp Eye',W/2,kbT7-4); ctx.restore();
+    },
+
+    // ── LEVEL 8: Music Scholar — wizard, moonballs, notes swirling ──
+    trumpet: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg8=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg8.addColorStop(0,'#060418'); bg8.addColorStop(1,'#01000a');
+      ctx.fillStyle=bg8; ctx.fillRect(0,0,W,H);
+
+      // Roaming moonbeam
+      const mm8x=W*0.5+Math.sin(t*0.019)*W*0.44;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const mmg8=ctx.createRadialGradient(mm8x,-2,0,mm8x,H*0.56,H*0.76);
+      mmg8.addColorStop(0,'rgba(200,170,255,0.25)'); mmg8.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=mmg8; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Moonballs bouncing realistically
+      for(let m=0;m<5;m++){
+        const mx=W*(0.1+m*0.2)+5*Math.sin(t*0.05+m*0.8);
+        const bounce=Math.abs(Math.sin(t*0.07+m*0.65));
+        const my=H*(0.08+0.22*bounce);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        const mbg=ctx.createRadialGradient(mx-2,my-2,0,mx,my,7+2*bounce);
+        mbg.addColorStop(0,'rgba(255,255,255,0.9)'); mbg.addColorStop(0.3,RAINBOW[m%7]+'cc'); mbg.addColorStop(1,RAINBOW[m%7]+'00');
+        ctx.fillStyle=mbg; ctx.beginPath(); ctx.arc(mx,my,7+2*bounce,0,Math.PI*2); ctx.fill();
+        // Shadow under ball
+        ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(mx,H*0.32,(7+2*bounce)*(1-bounce*0.5),2,0,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.save(); ctx.fillStyle=col; ctx.font='bold 9px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.fillText('LEVEL 8',W/2,12); ctx.restore();
+
+      // ── Wizard — robe with stars, pointed hat, wand ──
+      const kx=W/2, ky=H*0.44; const wizSway=2*Math.sin(t*0.06);
+      ctx.save(); ctx.translate(kx+wizSway,ky);
+      // Robe
+      ctx.fillStyle='#180840';
+      ctx.beginPath(); ctx.moveTo(-14,4); ctx.lineTo(-16,30); ctx.lineTo(16,30); ctx.lineTo(14,4); ctx.closePath(); ctx.fill();
+      // Star pattern on robe
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,215,0,0.7)'; ctx.font='8px serif'; ctx.textAlign='center';
+      ctx.fillText('★',-5,14); ctx.fillText('✦',5,22); ctx.fillText('★',0,9); ctx.fillText('✦',-7,25); ctx.restore();
+      // Head
+      ctx.fillStyle='#d4a470'; ctx.beginPath(); ctx.arc(0,-11,10,0,Math.PI*2); ctx.fill();
+      // Wizard hat
+      ctx.fillStyle='#180840';
+      ctx.beginPath(); ctx.moveTo(-11,-18); ctx.lineTo(0,-38); ctx.lineTo(11,-18); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(0,-18,13,4.5,0,0,Math.PI*2); ctx.fill();
+      // Stars on hat
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,215,0,0.9)'; ctx.font='8px serif'; ctx.textAlign='center';
+      ctx.fillText('★',0,-30); ctx.restore();
+      // Round spectacles
+      ctx.strokeStyle='#aaa'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(-4,-12,3.5,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(4,-12,3.5,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-0.5,-12); ctx.lineTo(0.5,-12); ctx.stroke();
+      ctx.fillStyle='#3355cc'; ctx.beginPath(); ctx.arc(-4,-12,2,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(4,-12,2,0,Math.PI*2); ctx.fill();
+      // Wise smile
+      ctx.strokeStyle='#884422'; ctx.lineWidth=1.8;
+      ctx.beginPath(); ctx.arc(0,-6,3.5,0.2,Math.PI-0.2); ctx.stroke();
+      // Wand with glowing clef
+      const wandRaise=5*Math.sin(t*0.07);
+      ctx.strokeStyle='#8b6030'; ctx.lineWidth=2.5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(12,28); ctx.lineTo(12,-7+wandRaise); ctx.stroke();
+      ctx.save(); ctx.globalAlpha=0.92; ctx.fillStyle='#ffd700'; ctx.font='18px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=14;
+      ctx.fillText('𝄞',12,-14+wandRaise); ctx.restore();
+      // Left arm outstretched
+      ctx.strokeStyle='#d4a470'; ctx.lineWidth=4.5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(-9,4); ctx.lineTo(-17,15); ctx.stroke();
+      ctx.restore(); // end wizard translate
+
+      // Notes swirling around wizard
+      for(let n=0;n<7;n++){
+        const ang=t*0.05+n*(Math.PI*2/7);
+        const nx=kx+Math.cos(ang)*35; const ny=ky+Math.sin(ang)*20;
+        ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=RAINBOW[n%7];
+        ctx.font='12px serif'; ctx.textAlign='center'; ctx.shadowColor=RAINBOW[n%7]; ctx.shadowBlur=6;
+        ctx.fillText(['♩','♪','♫','♬'][n%4],nx,ny); ctx.restore();
+      }
+
+      // Rainbow keyboard
+      const kbT8=H*0.72; const wk8=(W-8)/7;
+      for(let k=0;k<7;k++){
+        const kc2=RAINBOW[Math.floor(t*0.07+k*0.6)%7];
+        const kx3=4+k*wk8; const glit=0.55+0.45*Math.sin(t*0.09+k*0.85);
+        ctx.save(); ctx.shadowColor=kc2; ctx.shadowBlur=11*glit;
+        const kg2=ctx.createLinearGradient(kx3,kbT8,kx3,H-4);
+        kg2.addColorStop(0,kc2+Math.floor(glit*255).toString(16).padStart(2,'0')); kg2.addColorStop(1,kc2+'11');
+        ctx.fillStyle=kg2; ctx.beginPath(); ctx.roundRect(kx3+1,kbT8,wk8-2,H-kbT8-4,[0,0,4,4]); ctx.fill(); ctx.restore();
+      }
+      ctx.save(); ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor=col; ctx.shadowBlur=6;
+      ctx.fillText('Music Scholar',W/2,kbT8-4); ctx.restore();
+    },
+
+    // ── LEVEL 9: Note Guru Master — maestro, crowd, lasers, everything ──
+    fullband: function() {
+      ctx.clearRect(0,0,W,H);
+      const bg9=ctx.createRadialGradient(W/2,H*0.5,6,W/2,H/2,W);
+      bg9.addColorStop(0,'#020206'); bg9.addColorStop(1,'#000001');
+      ctx.fillStyle=bg9; ctx.fillRect(0,0,W,H);
+
+      // Spinning colour wheel background
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(let r=0;r<7;r++){
+        const ang=t*0.028+r*(Math.PI*2/7);
+        const rc=hexRgb(RAINBOW[r]);
+        const rwg=ctx.createLinearGradient(W/2,H/2,W/2+Math.cos(ang)*W,H/2+Math.sin(ang)*H);
+        rwg.addColorStop(0,`rgba(${rc.r},${rc.g},${rc.b},0.11)`); rwg.addColorStop(1,`rgba(${rc.r},${rc.g},${rc.b},0)`);
+        ctx.fillStyle=rwg; ctx.fillRect(0,0,W,H);
+      }
+      ctx.restore();
+
+      // Epic roaming spotlight
+      const sp9x=W*0.5+Math.sin(t*0.035)*W*0.42;
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      const spg9=ctx.createRadialGradient(sp9x,-2,0,sp9x,H*0.44,H*0.72);
+      spg9.addColorStop(0,'rgba(255,255,255,0.28)'); spg9.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=spg9; ctx.fillRect(0,0,W,H); ctx.restore();
+
+      // Strobe
+      if(Math.sin(t*0.28)>0.96){ ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+
+      // Laser grid — all directions
+      for(let l=0;l<6;l++){
+        const lx=W*(0.08+l*0.17); const la=0.25+0.15*Math.sin(t*0.07+l*0.9);
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        ctx.strokeStyle=RAINBOW[l%7]+Math.floor(la*255).toString(16).padStart(2,'0');
+        ctx.lineWidth=1.3; ctx.shadowColor=RAINBOW[l%7]; ctx.shadowBlur=5;
+        ctx.beginPath(); ctx.moveTo(lx,H*0.65); ctx.lineTo(W/2+22*Math.sin(l+t*0.02),0); ctx.stroke(); ctx.restore();
+      }
+
+      // Mini crowd
+      ctx.save(); ctx.globalCompositeOperation='screen';
+      for(let c=0;c<13;c++){
+        const cx=6+c*13.5; const bob=2.5*Math.sin(t*0.1+c*0.7);
+        const cc=RAINBOW[c%7];
+        ctx.fillStyle=cc+'88'; ctx.beginPath(); ctx.arc(cx,H*0.60+bob,2.8,0,Math.PI*2); ctx.fill();
+        ctx.fillRect(cx-2,H*0.60+bob+3,4,5);
+        if(Math.sin(t*0.08+c)>0.3){ ctx.beginPath(); ctx.arc(cx-3,H*0.58+bob,1.5,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(cx+3,H*0.58+bob,1.5,0,Math.PI*2); ctx.fill(); }
+      }
+      ctx.restore();
+
+      ctx.save(); ctx.fillStyle='#ffd700'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=14;
+      ctx.fillText('LEVEL 9',W/2,12); ctx.restore();
+
+      // ── Epic Maestro — conducting baton, dramatic ──
+      const baton=0.35*Math.sin(t*0.12); const kx=W/2, ky=H*0.39;
+      // Tailcoat
+      ctx.fillStyle='#08001e';
+      ctx.beginPath(); ctx.moveTo(kx-12,ky+4); ctx.lineTo(kx-19,ky+32); ctx.lineTo(kx-8,ky+20); ctx.lineTo(kx,ky+12); ctx.lineTo(kx+8,ky+20); ctx.lineTo(kx+19,ky+32); ctx.lineTo(kx+12,ky+4); ctx.closePath(); ctx.fill();
+      // White shirt front
+      ctx.fillStyle='#e0e0f0'; ctx.beginPath(); ctx.moveTo(kx-4,ky+4); ctx.lineTo(kx-2,ky+20); ctx.lineTo(kx,ky+12); ctx.lineTo(kx+2,ky+20); ctx.lineTo(kx+4,ky+4); ctx.closePath(); ctx.fill();
+      // Gold bow tie
+      ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.moveTo(kx-5,ky+2); ctx.lineTo(kx,ky+5); ctx.lineTo(kx+5,ky+2); ctx.lineTo(kx,ky-1); ctx.closePath(); ctx.fill();
+      // Head
+      ctx.fillStyle='#d49060'; ctx.beginPath(); ctx.arc(kx,ky-12,9,0,Math.PI*2); ctx.fill();
+      // Silver conductor hair
+      ctx.fillStyle='#b0b0be';
+      ctx.beginPath(); ctx.ellipse(kx,ky-20,9,5,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx-8,ky-17,4,6,0.3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(kx+8,ky-17,4,6,-0.3,0,Math.PI*2); ctx.fill();
+      // Intense eyes
+      ctx.fillStyle='#1a1a55'; ctx.beginPath(); ctx.arc(kx-3.5,ky-13,2.2,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+3.5,ky-13,2.2,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(kx-3.8,ky-13.5,0.7,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(kx+3.2,ky-13.5,0.7,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#882200'; ctx.lineWidth=1.8;
+      ctx.beginPath(); ctx.arc(kx,ky-7,3.5,0.1,Math.PI-0.1); ctx.stroke();
+      // Conducting arm — baton pumping
+      ctx.strokeStyle='#d49060'; ctx.lineWidth=5; ctx.lineCap='round';
+      const batonY=ky-10+7*Math.sin(t*0.12);
+      ctx.beginPath(); ctx.moveTo(kx+9,ky+2); ctx.lineTo(kx+22,batonY); ctx.stroke();
+      ctx.save(); ctx.translate(kx+22,batonY); ctx.rotate(baton-0.5);
+      ctx.strokeStyle='#e8e4c0'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-18); ctx.stroke();
+      ctx.fillStyle='#ffd700'; ctx.beginPath(); ctx.arc(0,-18,2.5,0,Math.PI*2); ctx.fill();
+      ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle='rgba(255,215,0,0.6)'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=10;
+      ctx.beginPath(); ctx.arc(0,-18,5,0,Math.PI*2); ctx.fill(); ctx.restore();
+      ctx.restore();
+      // Other arm
+      ctx.strokeStyle='#d49060'; ctx.lineWidth=5;
+      ctx.beginPath(); ctx.moveTo(kx-9,ky+2); ctx.lineTo(kx-22,ky+5+3*Math.cos(t*0.09)); ctx.stroke();
+      ctx.strokeStyle='#08001e'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(kx-4,ky+22); ctx.lineTo(kx-5,ky+32); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx+4,ky+22); ctx.lineTo(kx+5,ky+32); ctx.stroke();
+
+      // Firework orbs
+      for(let f=0;f<7;f++){
+        const fa=t*0.09+f*(Math.PI*2/7); const fd=24+14*Math.sin(t*0.11+f*0.7);
+        const fx=W/2+Math.cos(fa)*fd; const fy=H*0.27+Math.sin(fa)*fd*0.5;
+        ctx.save(); ctx.globalCompositeOperation='screen';
+        const og=ctx.createRadialGradient(fx,fy,0,fx,fy,6+2*Math.sin(t*0.13+f));
+        og.addColorStop(0,'rgba(255,255,255,0.9)'); og.addColorStop(0.4,RAINBOW[f%7]+'cc'); og.addColorStop(1,RAINBOW[f%7]+'00');
+        ctx.fillStyle=og; ctx.beginPath(); ctx.arc(fx,fy,6+2*Math.sin(t*0.13+f),0,Math.PI*2); ctx.fill(); ctx.restore();
+      }
+
+      // Cascading notes
+      for(let n=0;n<8;n++){
+        const nx=W*0.03+n*(W*0.13); const ny=((t*1.8+n*24)%(H*0.5))+4;
+        ctx.save(); ctx.globalCompositeOperation='screen'; ctx.fillStyle=RAINBOW[n%7]; ctx.font='12px serif'; ctx.textAlign='center';
+        ctx.shadowColor=RAINBOW[n%7]; ctx.shadowBlur=7; ctx.fillText(['♩','♪','♫','♬'][n%4],nx,ny); ctx.restore();
+      }
+
+      // Epic blazing keyboard
+      const kbT9=H*0.67; const wk9=(W-8)/7;
+      for(let k=0;k<7;k++){
+        const kc=RAINBOW[Math.floor(t*0.16+k*1.05)%7];
+        const kx2=4+k*wk9; const pulse=0.65+0.35*Math.sin(t*0.15+k*0.95);
+        ctx.save(); ctx.shadowColor=kc; ctx.shadowBlur=22*pulse;
+        const kg=ctx.createLinearGradient(kx2,kbT9,kx2,H-4);
+        kg.addColorStop(0,kc); kg.addColorStop(0.45,kc+'cc'); kg.addColorStop(1,kc+'11');
+        ctx.fillStyle=kg; ctx.beginPath(); ctx.roundRect(kx2+1,kbT9,wk9-2,H-kbT9-4,[0,0,4,4]); ctx.fill();
+        ctx.fillStyle=`rgba(255,255,255,${pulse*0.5})`; ctx.beginPath(); ctx.roundRect(kx2+2,kbT9,wk9-4,3,[1,1,0,0]); ctx.fill(); ctx.restore();
+      }
+      ctx.save(); ctx.fillStyle='rgba(255,215,0,0.95)'; ctx.font='bold 8px Georgia,serif';
+      ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=10;
+      ctx.fillText('Note Guru Master',W/2,kbT9-4); ctx.restore();
+    },
+
   };
+
+
+
 
   function frame() {
     if (earned) {
