@@ -47,10 +47,10 @@
      LOGIN SCREEN
   ══════════════════════════════ */
   #login-screen {
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    flex-direction:column; align-items:center; justify-content:center;
     min-height:100vh; padding:32px 20px;
   }
-  #login-screen.active { display:flex; }
+  #login-screen.active { display:flex !important; }
 
   .logo-wrap { text-align:center; margin-bottom:36px; }
   .logo-wrap .logo-icon { font-size:2.6rem; display:block; margin-bottom:8px; }
@@ -235,6 +235,8 @@
     td, thead th { padding:9px 7px; }
   }
 </style>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
@@ -345,7 +347,6 @@ const BADGE_NAMES = [
 let _db = null;
 let _students = [];
 let _expandedCode = null;
-let _fsLib = null;
 
 // ── Stars ──────────────────────────────────────────────────────
 (function() {
@@ -389,11 +390,8 @@ document.getElementById('pw-input').addEventListener('keydown', function(e) {
 // ── Firebase init ──────────────────────────────────────────────
 async function initDashboard() {
   try {
-    const fbApp   = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
-    const fbStore = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
-    const app = fbApp.initializeApp(firebaseConfig, 'dashboard');
-    _db = fbStore.getFirestore(app);
-    _fsLib = fbStore;
+    firebase.initializeApp(firebaseConfig);
+    _db = firebase.firestore();
     await loadAllStudents();
   } catch(e) {
     console.error('Firebase init failed', e);
@@ -406,48 +404,36 @@ async function initDashboard() {
 async function loadAllStudents() {
   showLoading(true);
   try {
-    const collection = _fsLib.collection;
-    const getDocs    = _fsLib.getDocs;
-    const doc        = _fsLib.doc;
-    const getDoc     = _fsLib.getDoc;
-
-    // Fetch all student docs
-    const studentsSnap = await getDocs(collection(_db, 'students'));
+    const studentsSnap = await _db.collection('students').get();
     const results = [];
 
-    // For each student, also fetch their progress subcollection
-    const promises = studentsSnap.docs.map(async (studentDoc) => {
-      const code = studentDoc.id;
-      const data = studentDoc.data();
-      let progress = {
+    const promises = studentsSnap.docs.map(async function(studentDoc) {
+      var code = studentDoc.id;
+      var data = studentDoc.data();
+      var progress = {
         completions: new Array(9).fill(false),
         collectibles_letters: new Array(9).fill(false),
         collectibles_piano:   new Array(9).fill(false),
-        totalCorrect: 0,
-        totalAnswered: 0,
-        totalSessions: 0,
-        lastPlayed: null,
-        noteAccuracy: {}
+        totalCorrect: 0, totalAnswered: 0, totalSessions: 0,
+        lastPlayed: null, noteAccuracy: {}
       };
       try {
-        const progRef = doc(_db, 'students', code, 'progress', 'main');
-        const progSnap = await getDoc(progRef);
-        if (progSnap.exists()) {
-          const p = progSnap.data();
+        var progSnap = await _db.collection('students').doc(code).collection('progress').doc('main').get();
+        if (progSnap.exists) {
+          var p = progSnap.data();
           progress = {
-            completions:           p.completions           || new Array(9).fill(false),
-            collectibles_letters:  p.collectibles_letters  || new Array(9).fill(false),
-            collectibles_piano:    p.collectibles_piano    || new Array(9).fill(false),
-            totalCorrect:          p.totalCorrect          || 0,
-            totalAnswered:         p.totalAnswered         || 0,
-            totalSessions:         p.totalSessions         || 0,
-            lastPlayed:            p.lastPlayed            || null,
-            noteAccuracy:          p.noteAccuracy          || {}
+            completions:          p.completions          || new Array(9).fill(false),
+            collectibles_letters: p.collectibles_letters || new Array(9).fill(false),
+            collectibles_piano:   p.collectibles_piano   || new Array(9).fill(false),
+            totalCorrect:         p.totalCorrect         || 0,
+            totalAnswered:        p.totalAnswered        || 0,
+            totalSessions:        p.totalSessions        || 0,
+            lastPlayed:           p.lastPlayed           || null,
+            noteAccuracy:         p.noteAccuracy         || {}
           };
         }
-      } catch(e) { /* progress might not exist yet */ }
-
-      results.push({ code, name: data.name || '(no name)', createdAt: data.createdAt || 0, ...progress });
+      } catch(e) {}
+      results.push(Object.assign({ code: code, name: data.name || '(no name)', createdAt: data.createdAt || 0 }, progress));
     });
 
     await Promise.all(promises);
@@ -456,8 +442,8 @@ async function loadAllStudents() {
     renderTable();
     showLoading(false);
 
-    const ts = new Date().toLocaleTimeString('en-AU', {hour:'2-digit', minute:'2-digit'});
-    document.getElementById('dash-subtitle').textContent = `Note Guru — White Keys · Last updated ${ts}`;
+    var ts = new Date().toLocaleTimeString('en-AU', {hour:'2-digit', minute:'2-digit'});
+    document.getElementById('dash-subtitle').textContent = 'Note Guru — White Keys · Last updated ' + ts;
   } catch(e) {
     console.error('loadAllStudents failed', e);
     showToast('❌ Failed to load student data');
