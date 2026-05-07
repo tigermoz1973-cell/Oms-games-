@@ -1369,12 +1369,30 @@ function updateCodeDisplay() {
   if (errEl) errEl.textContent = '';
 }
 
+async function checkWhitelist(code) {
+  if (!_db) return true; // if Firebase unavailable, don't block
+  try {
+    const { getDoc, doc: fsDoc } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const snap = await getDoc(fsDoc(_db, 'whitelist', code));
+    return snap.exists();
+  } catch(e) { console.warn('Whitelist check failed', e); return true; }
+}
+
 async function submitCode() {
   if (_codeDigits.length !== 6) return;
   const code = _codeDigits.join('');
   _pendingCode = code;
   const errEl = document.getElementById('code-error');
   if (errEl) errEl.textContent = 'Checking...';
+
+  // ── Whitelist check ──
+  const allowed = await checkWhitelist(code);
+  if (!allowed) {
+    if (errEl) errEl.textContent = '❌ Invalid code — ask your teacher';
+    _codeDigits = [];
+    updateCodeDisplay();
+    return;
+  }
 
   const student = await lookupStudent(code);
 
