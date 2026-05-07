@@ -1365,8 +1365,9 @@ function updateCodeDisplay() {
   }
   const playBtn = document.getElementById('code-play-btn');
   if (playBtn) playBtn.classList.toggle('ready', _codeDigits.length === 6);
+  // Don't clear error if it's a whitelist rejection message
   const errEl = document.getElementById('code-error');
-  if (errEl) errEl.textContent = '';
+  if (errEl && !errEl.dataset.persist) errEl.textContent = '';
 }
 
 async function checkWhitelist(code) {
@@ -1388,7 +1389,11 @@ async function submitCode() {
   // ── Whitelist check ──
   const allowed = await checkWhitelist(code);
   if (!allowed) {
-    if (errEl) errEl.textContent = '❌ Invalid code — ask your teacher';
+    if (errEl) {
+      errEl.textContent = '❌ Invalid code — ask your teacher';
+      errEl.dataset.persist = '1';
+      setTimeout(function() { errEl.dataset.persist = ''; errEl.textContent = ''; }, 3000);
+    }
     _codeDigits = [];
     updateCodeDisplay();
     return;
