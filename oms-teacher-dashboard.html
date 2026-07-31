@@ -336,6 +336,11 @@
       <option value="St John the Baptist">St John the Baptist</option>
       <option value="__unassigned">(No school set)</option>
     </select>
+    <select class="filter-select" id="status-filter-select" onchange="renderTable()">
+      <option value="active">Active only</option>
+      <option value="withdrawn">Withdrawn only</option>
+      <option value="all">All (active + withdrawn)</option>
+    </select>
     <select class="filter-select" id="sort-select" onchange="renderTable()">
       <option value="name">Sort: Name</option>
       <option value="code">Sort: Code</option>
@@ -543,7 +548,7 @@ function applySchoolLock() {
     schoolSelect.disabled = false;
   }
 
-  ['btn-add-student', 'btn-bulk-generate', 'btn-assign-school'].forEach(function(id) {
+  ['btn-assign-school'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.style.display = isLocked ? 'none' : '';
   });
@@ -596,7 +601,7 @@ async function loadAllStudents() {
           };
         }
       } catch(e) {}
-      results.push(Object.assign({ code: code, name: data.name || '(no name)', school: data.school || '', createdAt: data.createdAt || 0 }, progress));
+      results.push(Object.assign({ code: code, name: data.name || '(no name)', school: data.school || '', omsStudent: !!data.omsStudent, status: data.status || 'active', createdAt: data.createdAt || 0 }, progress));
     });
 
     await Promise.all(promises);
@@ -618,7 +623,8 @@ async function loadAllStudents() {
 function updateSummaryStats() {
   const now = Date.now();
   const sevenDays = 7 * 24 * 60 * 60 * 1000;
-  const pool = _lockedSchool ? _students.filter(s => s.school === _lockedSchool) : _students;
+  let pool = _lockedSchool ? _students.filter(s => s.school === _lockedSchool) : _students;
+  pool = pool.filter(s => s.status !== 'withdrawn');
   const active = pool.filter(s => s.lastPlayed && (now - s.lastPlayed) < sevenDays).length;
   const totalBadges = pool.reduce((sum, s) => sum + (s.completions || []).filter(Boolean).length, 0);
   const totalSessions = pool.reduce((sum, s) => sum + (s.totalSessions || 0), 0);
@@ -634,15 +640,20 @@ function renderTable() {
   const search = document.getElementById('search-input').value.trim().toLowerCase();
   const sort   = document.getElementById('sort-select').value;
   const schoolFilter = _lockedSchool || document.getElementById('school-filter-select').value;
+  const statusFilter = document.getElementById('status-filter-select').value;
 
   let filtered = _students.filter(s => {
     const matchesSearch = !search ||
       s.name.toLowerCase().includes(search) ||
       s.code.toLowerCase().includes(search);
     if (!matchesSearch) return false;
-    if (!schoolFilter) return true;
-    if (schoolFilter === '__unassigned') return !s.school;
-    return s.school === schoolFilter;
+    if (schoolFilter) {
+      if (schoolFilter === '__unassigned') { if (s.school) return false; }
+      else if (s.school !== schoolFilter) return false;
+    }
+    if (statusFilter === 'active'    && s.status === 'withdrawn') return false;
+    if (statusFilter === 'withdrawn' && s.status !== 'withdrawn') return false;
+    return true;
   });
 
   filtered.sort((a, b) => {
@@ -676,9 +687,10 @@ function renderTable() {
     // Main row
     const tr = document.createElement('tr');
     if (isExpanded) tr.classList.add('expanded');
+    if (s.status === 'withdrawn') tr.style.opacity = '0.5';
     tr.innerHTML = `
       <td><span class="student-code">${s.code}</span></td>
-      <td class="student-name">${escHtml(s.name)}${s.school ? `<div style="font-size:0.7rem;color:var(--subtext);font-weight:normal">${escHtml(s.school)}</div>` : ''}</td>
+      <td class="student-name">${escHtml(s.name)}${s.omsStudent ? ' <span title="OMS student" style="font-size:0.7rem;background:#e8c97e;color:#1a1a2e;border-radius:4px;padding:1px 5px;font-weight:bold">🎵 OMS</span>' : ''}${s.status === 'withdrawn' ? ' <span style="font-size:0.7rem;background:#8aa0b8;color:#1a1a2e;border-radius:4px;padding:1px 5px;font-weight:bold">WITHDRAWN</span>' : ''}${s.school ? `<div style="font-size:0.7rem;color:var(--subtext);font-weight:normal">${escHtml(s.school)}</div>` : ''}</td>
       <td class="center badge-cell">${badgeDotsHtml(badges)} <span style="font-size:0.75rem;color:var(--subtext);margin-left:4px">${earned}/9</span></td>
       <td class="center">
         ${pct !== null
@@ -766,9 +778,18 @@ function buildExpandPanel(s) {
     ${statsHtml}
     ${collHtml}
     ${noteHtml}
-    ${_lockedSchool ? '' : `<div style="margin-top:16px;text-align:right">
-      <button class="icon-btn" style="border-color:#e05555;color:#e05555" onclick="event.stopPropagation(); confirmDeleteStudent('${s.code}', '${escHtml(s.name).replace(/'/g,"\\'")}')">🗑️ Delete Code</button>
-    </div>`}
+    <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:var(--subtext);cursor:pointer" onclick="event.stopPropagation()">
+        <input type="checkbox" ${s.omsStudent ? 'checked' : ''} onchange="event.stopPropagation(); toggleOmsStudent('${s.code}', this.checked)">
+        🎵 Also an OMS student
+      </label>
+      <div style="display:flex;gap:8px">
+        <button class="icon-btn" style="border-color:#8aa0b8;color:#8aa0b8" onclick="event.stopPropagation(); toggleWithdrawn('${s.code}', '${s.status === 'withdrawn' ? 'active' : 'withdrawn'}')">
+          ${s.status === 'withdrawn' ? '↩️ Reactivate' : '🚪 Mark Withdrawn'}
+        </button>
+        ${_lockedSchool ? '' : `<button class="icon-btn" style="border-color:#e05555;color:#e05555" onclick="event.stopPropagation(); confirmDeleteStudent('${s.code}', '${escHtml(s.name).replace(/'/g,"\\'")}')">🗑️ Delete Code</button>`}
+      </div>
+    </div>
   `;
 }
 
@@ -796,6 +817,35 @@ async function deleteStudentCode(code) {
   } catch (e) {
     console.error('deleteStudentCode failed', e);
     showToast('❌ Failed to delete ' + code);
+  }
+}
+
+// ── OMS private-student tag ─────────────────────────────────────
+async function toggleOmsStudent(code, isOms) {
+  try {
+    await _db.collection('students').doc(code).set({ omsStudent: isOms }, { merge: true });
+    var s = _students.find(function(x) { return x.code === code; });
+    if (s) s.omsStudent = isOms;
+    renderTable();
+    showToast(isOms ? '🎵 Tagged as OMS student' : 'Untagged');
+  } catch (e) {
+    console.error('toggleOmsStudent failed', e);
+    showToast('❌ Failed to update tag');
+  }
+}
+
+// ── Withdraw / reactivate a code ────────────────────────────────
+async function toggleWithdrawn(code, newStatus) {
+  try {
+    await _db.collection('students').doc(code).set({ status: newStatus }, { merge: true });
+    var s = _students.find(function(x) { return x.code === code; });
+    if (s) s.status = newStatus;
+    updateSummaryStats();
+    renderTable();
+    showToast(newStatus === 'withdrawn' ? '🚪 Marked withdrawn' : '↩️ Reactivated');
+  } catch (e) {
+    console.error('toggleWithdrawn failed', e);
+    showToast('❌ Failed to update status');
   }
 }
 
@@ -872,7 +922,14 @@ function showToast(msg) {
 // ── Add Student Code modal ────────────────────────────────────
 function openAddStudent() {
   document.getElementById('new-code-input').value = '';
-  document.getElementById('new-code-school').value = '';
+  var schoolSelect = document.getElementById('new-code-school');
+  if (_lockedSchool) {
+    schoolSelect.value = _lockedSchool;
+    schoolSelect.disabled = true;
+  } else {
+    schoolSelect.value = '';
+    schoolSelect.disabled = false;
+  }
   document.getElementById('modal-msg').textContent = '';
   document.getElementById('modal-msg').style.color = '';
   document.getElementById('add-student-modal').classList.add('open');
@@ -953,7 +1010,14 @@ function openBulkAdd() {
   document.getElementById('bulk-prefix-input').value = '';
   document.getElementById('bulk-start-input').value = '';
   document.getElementById('bulk-count-input').value = '';
-  document.getElementById('bulk-school-select').value = '';
+  var bulkSchoolSelect = document.getElementById('bulk-school-select');
+  if (_lockedSchool) {
+    bulkSchoolSelect.value = _lockedSchool;
+    bulkSchoolSelect.disabled = true;
+  } else {
+    bulkSchoolSelect.value = '';
+    bulkSchoolSelect.disabled = false;
+  }
   document.getElementById('bulk-preview-msg').textContent = '';
   document.getElementById('bulk-msg').textContent = '';
   document.getElementById('bulk-progress-wrap').style.display = 'none';
