@@ -307,6 +307,7 @@
     </div>
     <div class="dash-actions">
       <button class="icon-btn" onclick="openAddStudent()" style="border-color:var(--green);color:var(--green)">➕ Add Student Code</button>
+      <button class="icon-btn" onclick="openBulkAdd()" style="border-color:var(--blue);color:var(--blue)">📦 Bulk Generate</button>
       <button class="icon-btn" onclick="refreshData()">🔄 Refresh</button>
       <button class="icon-btn" onclick="exportCSV()">⬇️ Export CSV</button>
       <button class="logout-btn" onclick="logout()">Logout</button>
@@ -367,6 +368,27 @@
       <button class="modal-btn-add" id="add-btn" onclick="addStudentCode()">Add Code</button>
     </div>
     <div class="modal-msg" id="modal-msg"></div>
+  </div>
+</div>
+
+<!-- Bulk Generate Modal -->
+<div class="modal-overlay" id="bulk-add-modal">
+  <div class="modal-card" style="max-width:340px">
+    <h3>📦 Bulk Generate Codes</h3>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:4px">
+      <input class="modal-code-input" id="bulk-prefix-input" type="text" maxlength="2" placeholder="Prefix (e.g. LS)" style="text-align:center" oninput="this.value=this.value.toUpperCase()">
+      <input class="modal-code-input" id="bulk-start-input" type="number" min="1" placeholder="Start number (e.g. 1)" style="text-align:center">
+      <input class="modal-code-input" id="bulk-count-input" type="number" min="1" max="500" placeholder="How many (e.g. 150)" style="text-align:center">
+    </div>
+    <div class="modal-msg" id="bulk-preview-msg" style="color:var(--blue)"></div>
+    <div class="modal-btns">
+      <button class="modal-btn-cancel" onclick="closeBulkAdd()">Cancel</button>
+      <button class="modal-btn-add" id="bulk-add-btn" onclick="bulkAddCodes()">Generate</button>
+    </div>
+    <div style="margin-top:10px;background:rgba(255,255,255,0.05);border-radius:8px;height:8px;overflow:hidden;display:none" id="bulk-progress-wrap">
+      <div id="bulk-progress-bar" style="height:100%;width:0%;background:var(--blue);transition:width 0.2s"></div>
+    </div>
+    <div class="modal-msg" id="bulk-msg"></div>
   </div>
 </div>
 
@@ -783,6 +805,110 @@ async function addStudentCode() {
 // Close modal on overlay click
 document.getElementById('add-student-modal').addEventListener('click', function(e) {
   if (e.target === this) closeAddStudent();
+});
+
+// ── Bulk Generate modal ───────────────────────────────────────
+function _bulkPreviewCode() {
+  var prefix = document.getElementById('bulk-prefix-input').value.trim().toUpperCase();
+  var start = parseInt(document.getElementById('bulk-start-input').value, 10);
+  var count = parseInt(document.getElementById('bulk-count-input').value, 10);
+  var previewEl = document.getElementById('bulk-preview-msg');
+  if (!prefix || prefix.length !== 2 || !start || !count) {
+    previewEl.textContent = '';
+    return;
+  }
+  var first = prefix + String(start).padStart(4, '0');
+  var last = prefix + String(start + count - 1).padStart(4, '0');
+  previewEl.textContent = 'Will create ' + count + ' codes: ' + first + ' → ' + last;
+}
+
+function openBulkAdd() {
+  document.getElementById('bulk-prefix-input').value = '';
+  document.getElementById('bulk-start-input').value = '';
+  document.getElementById('bulk-count-input').value = '';
+  document.getElementById('bulk-preview-msg').textContent = '';
+  document.getElementById('bulk-msg').textContent = '';
+  document.getElementById('bulk-progress-wrap').style.display = 'none';
+  document.getElementById('bulk-progress-bar').style.width = '0%';
+  document.getElementById('bulk-add-modal').classList.add('open');
+  ['bulk-prefix-input', 'bulk-start-input', 'bulk-count-input'].forEach(function(id) {
+    document.getElementById(id).addEventListener('input', _bulkPreviewCode);
+  });
+}
+
+function closeBulkAdd() {
+  document.getElementById('bulk-add-modal').classList.remove('open');
+}
+
+async function bulkAddCodes() {
+  var prefix = document.getElementById('bulk-prefix-input').value.trim().toUpperCase();
+  var start = parseInt(document.getElementById('bulk-start-input').value, 10);
+  var count = parseInt(document.getElementById('bulk-count-input').value, 10);
+  var msgEl = document.getElementById('bulk-msg');
+  var addBtn = document.getElementById('bulk-add-btn');
+  var progWrap = document.getElementById('bulk-progress-wrap');
+  var progBar = document.getElementById('bulk-progress-bar');
+
+  if (!prefix || prefix.length !== 2) {
+    msgEl.style.color = '#e05555';
+    msgEl.textContent = 'Prefix must be exactly 2 letters (e.g. LS)';
+    return;
+  }
+  if (!start || start < 1) {
+    msgEl.style.color = '#e05555';
+    msgEl.textContent = 'Enter a valid start number';
+    return;
+  }
+  if (!count || count < 1 || count > 500) {
+    msgEl.style.color = '#e05555';
+    msgEl.textContent = 'Enter a count between 1 and 500';
+    return;
+  }
+
+  addBtn.disabled = true;
+  progWrap.style.display = 'block';
+  msgEl.style.color = '';
+
+  var created = 0, skipped = 0, failed = 0;
+
+  for (var i = 0; i < count; i++) {
+    var num = start + i;
+    var code = prefix + String(num).padStart(4, '0');
+    msgEl.textContent = 'Adding ' + code + ' (' + (i + 1) + ' of ' + count + ')…';
+    progBar.style.width = Math.round(((i + 1) / count) * 100) + '%';
+
+    try {
+      var whitelistRef = _db.collection('whitelist').doc(code);
+      var existingWhitelist = await whitelistRef.get();
+      if (existingWhitelist.exists) {
+        skipped++;
+        continue;
+      }
+      await whitelistRef.set({ createdAt: Date.now() });
+      var studentRef = _db.collection('students').doc(code);
+      var existingStudent = await studentRef.get();
+      if (!existingStudent.exists) {
+        await studentRef.set({ name: '', pin: '', createdAt: Date.now() });
+      }
+      created++;
+    } catch (e) {
+      console.error('bulkAddCodes failed for', code, e);
+      failed++;
+    }
+  }
+
+  addBtn.disabled = false;
+  msgEl.style.color = failed > 0 ? '#e05555' : '#4caf7d';
+  msgEl.textContent = '✅ Created ' + created + ', skipped ' + skipped + ' (already existed)' + (failed > 0 ? ', ❌ ' + failed + ' failed' : '');
+
+  setTimeout(function() {
+    loadAllStudents();
+  }, 800);
+}
+
+// Close modal on overlay click
+document.getElementById('bulk-add-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeBulkAdd();
 });
 
 // ── end
