@@ -306,9 +306,9 @@
       <div class="dash-subtitle" id="dash-subtitle">Note Guru — White Keys</div>
     </div>
     <div class="dash-actions">
-      <button class="icon-btn" onclick="openAddStudent()" style="border-color:var(--green);color:var(--green)">➕ Add Student Code</button>
-      <button class="icon-btn" onclick="openBulkAdd()" style="border-color:var(--blue);color:var(--blue)">📦 Bulk Generate</button>
-      <button class="icon-btn" onclick="openAssignSchool()" style="border-color:#e8c97e;color:#e8c97e">🏫 Assign School</button>
+      <button class="icon-btn" id="btn-add-student" onclick="openAddStudent()" style="border-color:var(--green);color:var(--green)">➕ Add Student Code</button>
+      <button class="icon-btn" id="btn-bulk-generate" onclick="openBulkAdd()" style="border-color:var(--blue);color:var(--blue)">📦 Bulk Generate</button>
+      <button class="icon-btn" id="btn-assign-school" onclick="openAssignSchool()" style="border-color:#e8c97e;color:#e8c97e">🏫 Assign School</button>
       <button class="icon-btn" onclick="refreshData()">🔄 Refresh</button>
       <button class="icon-btn" onclick="exportCSV()">⬇️ Export CSV</button>
       <button class="logout-btn" onclick="logout()">Logout</button>
@@ -457,6 +457,13 @@
 // ── All dashboard logic in a plain script ──────────────────────
 const TEACHER_PASSWORD = 'oms2024';
 
+// Give each school a locked-view password: teachers logging in with these
+// see ONLY their school's students, with no admin controls (add/bulk/assign/delete).
+const SCHOOL_PASSWORDS = {
+  'lloyd2024': 'Lloyd Street'
+  // Add more as needed, e.g. 'rowville2024': 'Rowville'
+};
+
 const firebaseConfig = {
   apiKey: "AIzaSyDelTTZQhOihOkqUaGg3xEtt3NOlCkfb9M",
   authDomain: "note-guru-553aa.firebaseapp.com",
@@ -475,6 +482,7 @@ const BADGE_NAMES = [
 let _db = null;
 let _students = [];
 let _expandedCode = null;
+let _lockedSchool = null; // set when a school-specific password is used
 
 // ── Stars ──────────────────────────────────────────────────────
 (function() {
@@ -494,6 +502,13 @@ function attemptLogin() {
   var errEl = document.getElementById('login-error');
   if (pw === TEACHER_PASSWORD) {
     errEl.textContent = '';
+    _lockedSchool = null;
+    document.getElementById('login-screen').classList.remove('active');
+    document.getElementById('dash-screen').classList.add('active');
+    initDashboard();
+  } else if (SCHOOL_PASSWORDS.hasOwnProperty(pw)) {
+    errEl.textContent = '';
+    _lockedSchool = SCHOOL_PASSWORDS[pw];
     document.getElementById('login-screen').classList.remove('active');
     document.getElementById('dash-screen').classList.add('active');
     initDashboard();
@@ -509,15 +524,35 @@ function logout() {
   document.getElementById('login-screen').classList.add('active');
   document.getElementById('pw-input').value = '';
   document.getElementById('login-error').textContent = '';
+  _lockedSchool = null;
 }
 
 document.getElementById('pw-input').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') attemptLogin();
 });
 
+// ── Apply school lock (for teacher-specific passwords) ─────────
+function applySchoolLock() {
+  var isLocked = !!_lockedSchool;
+  var schoolSelect = document.getElementById('school-filter-select');
+
+  if (isLocked) {
+    schoolSelect.value = _lockedSchool;
+    schoolSelect.disabled = true;
+  } else {
+    schoolSelect.disabled = false;
+  }
+
+  ['btn-add-student', 'btn-bulk-generate', 'btn-assign-school'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = isLocked ? 'none' : '';
+  });
+}
+
 // ── Firebase init ──────────────────────────────────────────────
 async function initDashboard() {
   try {
+    applySchoolLock();
     firebase.initializeApp(firebaseConfig);
     _db = firebase.firestore();
     await loadAllStudents();
@@ -571,7 +606,7 @@ async function loadAllStudents() {
     showLoading(false);
 
     var ts = new Date().toLocaleTimeString('en-AU', {hour:'2-digit', minute:'2-digit'});
-    document.getElementById('dash-subtitle').textContent = 'Note Guru — White Keys · Last updated ' + ts;
+    document.getElementById('dash-subtitle').textContent = 'Note Guru — White Keys' + (_lockedSchool ? ' · ' + _lockedSchool : '') + ' · Last updated ' + ts;
   } catch(e) {
     console.error('loadAllStudents failed', e);
     showToast('❌ Failed to load student data');
@@ -583,11 +618,12 @@ async function loadAllStudents() {
 function updateSummaryStats() {
   const now = Date.now();
   const sevenDays = 7 * 24 * 60 * 60 * 1000;
-  const active = _students.filter(s => s.lastPlayed && (now - s.lastPlayed) < sevenDays).length;
-  const totalBadges = _students.reduce((sum, s) => sum + (s.completions || []).filter(Boolean).length, 0);
-  const totalSessions = _students.reduce((sum, s) => sum + (s.totalSessions || 0), 0);
+  const pool = _lockedSchool ? _students.filter(s => s.school === _lockedSchool) : _students;
+  const active = pool.filter(s => s.lastPlayed && (now - s.lastPlayed) < sevenDays).length;
+  const totalBadges = pool.reduce((sum, s) => sum + (s.completions || []).filter(Boolean).length, 0);
+  const totalSessions = pool.reduce((sum, s) => sum + (s.totalSessions || 0), 0);
 
-  document.getElementById('stat-students').textContent = _students.length;
+  document.getElementById('stat-students').textContent = pool.length;
   document.getElementById('stat-active').textContent = active;
   document.getElementById('stat-badges').textContent = totalBadges;
   document.getElementById('stat-sessions').textContent = totalSessions;
@@ -597,7 +633,7 @@ function updateSummaryStats() {
 function renderTable() {
   const search = document.getElementById('search-input').value.trim().toLowerCase();
   const sort   = document.getElementById('sort-select').value;
-  const schoolFilter = document.getElementById('school-filter-select').value;
+  const schoolFilter = _lockedSchool || document.getElementById('school-filter-select').value;
 
   let filtered = _students.filter(s => {
     const matchesSearch = !search ||
@@ -730,9 +766,9 @@ function buildExpandPanel(s) {
     ${statsHtml}
     ${collHtml}
     ${noteHtml}
-    <div style="margin-top:16px;text-align:right">
+    ${_lockedSchool ? '' : `<div style="margin-top:16px;text-align:right">
       <button class="icon-btn" style="border-color:#e05555;color:#e05555" onclick="event.stopPropagation(); confirmDeleteStudent('${s.code}', '${escHtml(s.name).replace(/'/g,"\\'")}')">🗑️ Delete Code</button>
-    </div>
+    </div>`}
   `;
 }
 
