@@ -699,7 +699,6 @@
     </div>
   </div>
   <button class="code-play-btn" id="code-play-btn" data-action="submit">▶ LET'S PLAY</button>
-  <button class="code-skip" data-action="skip">Play as guest (no tracking)</button>
 </div>
 
 <!-- ══════════════════ IS THAT YOU? ══════════════════ -->
@@ -1424,7 +1423,7 @@ async function submitCode() {
   }
 }
 
-function skipCode() { _playerCode = null; _playerName = null; goMenu(); }
+function skipCode() { /* Guest/no-tracking access disabled — every student must enter a code */ }
 
 // ── Confirm Screen ──
 async function confirmYes() {
