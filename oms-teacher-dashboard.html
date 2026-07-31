@@ -308,6 +308,7 @@
     <div class="dash-actions">
       <button class="icon-btn" onclick="openAddStudent()" style="border-color:var(--green);color:var(--green)">➕ Add Student Code</button>
       <button class="icon-btn" onclick="openBulkAdd()" style="border-color:var(--blue);color:var(--blue)">📦 Bulk Generate</button>
+      <button class="icon-btn" onclick="openAssignSchool()" style="border-color:#e8c97e;color:#e8c97e">🏫 Assign School</button>
       <button class="icon-btn" onclick="refreshData()">🔄 Refresh</button>
       <button class="icon-btn" onclick="exportCSV()">⬇️ Export CSV</button>
       <button class="logout-btn" onclick="logout()">Logout</button>
@@ -417,6 +418,35 @@
       <div id="bulk-progress-bar" style="height:100%;width:0%;background:var(--blue);transition:width 0.2s"></div>
     </div>
     <div class="modal-msg" id="bulk-msg"></div>
+  </div>
+</div>
+
+<!-- Assign School Modal -->
+<div class="modal-overlay" id="assign-school-modal">
+  <div class="modal-card" style="max-width:340px">
+    <h3>🏫 Assign School</h3>
+    <p style="color:var(--subtext);font-size:0.82rem;margin:-6px 0 12px">Set the school for every code starting with a given prefix — handy for fixing a batch that was generated without one.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:4px">
+      <input class="modal-code-input" id="assign-prefix-input" type="text" maxlength="6" placeholder="Code prefix (e.g. LS)" style="text-align:center" oninput="this.value=this.value.toUpperCase()">
+      <select class="modal-code-input" id="assign-school-select" style="text-align:center">
+        <option value="">No school (unassigned)</option>
+        <option value="Lloyd Street">Lloyd Street</option>
+        <option value="Mt Pleasant Road">Mt Pleasant Road</option>
+        <option value="Mount Waverley">Mount Waverley</option>
+        <option value="Rowville">Rowville</option>
+        <option value="St James">St James</option>
+        <option value="St John the Baptist">St John the Baptist</option>
+      </select>
+    </div>
+    <div class="modal-msg" id="assign-preview-msg" style="color:var(--blue)"></div>
+    <div class="modal-btns">
+      <button class="modal-btn-cancel" onclick="closeAssignSchool()">Cancel</button>
+      <button class="modal-btn-add" id="assign-school-btn" onclick="assignSchoolBulk()">Apply</button>
+    </div>
+    <div style="margin-top:10px;background:rgba(255,255,255,0.05);border-radius:8px;height:8px;overflow:hidden;display:none" id="assign-progress-wrap">
+      <div id="assign-progress-bar" style="height:100%;width:0%;background:#e8c97e;transition:width 0.2s"></div>
+    </div>
+    <div class="modal-msg" id="assign-msg"></div>
   </div>
 </div>
 
@@ -972,6 +1002,85 @@ async function bulkAddCodes() {
 // Close modal on overlay click
 document.getElementById('bulk-add-modal').addEventListener('click', function(e) {
   if (e.target === this) closeBulkAdd();
+});
+
+// ── Assign School (bulk edit by prefix) ─────────────────────────
+function openAssignSchool() {
+  document.getElementById('assign-prefix-input').value = '';
+  document.getElementById('assign-school-select').value = '';
+  document.getElementById('assign-preview-msg').textContent = '';
+  document.getElementById('assign-msg').textContent = '';
+  document.getElementById('assign-progress-wrap').style.display = 'none';
+  document.getElementById('assign-progress-bar').style.width = '0%';
+  document.getElementById('assign-school-modal').classList.add('open');
+  setTimeout(function() { document.getElementById('assign-prefix-input').focus(); }, 100);
+  document.getElementById('assign-prefix-input').oninput = _assignSchoolPreview;
+  document.getElementById('assign-school-select').onchange = _assignSchoolPreview;
+}
+
+function closeAssignSchool() {
+  document.getElementById('assign-school-modal').classList.remove('open');
+}
+
+function _assignSchoolPreview() {
+  var prefix = document.getElementById('assign-prefix-input').value.trim().toUpperCase();
+  var previewEl = document.getElementById('assign-preview-msg');
+  if (!prefix) { previewEl.textContent = ''; return; }
+  var matches = _students.filter(function(s) { return s.code.indexOf(prefix) === 0; });
+  previewEl.textContent = matches.length + ' code' + (matches.length === 1 ? '' : 's') + ' match "' + prefix + '"';
+}
+
+async function assignSchoolBulk() {
+  var prefix = document.getElementById('assign-prefix-input').value.trim().toUpperCase();
+  var school = document.getElementById('assign-school-select').value;
+  var msgEl = document.getElementById('assign-msg');
+  var applyBtn = document.getElementById('assign-school-btn');
+  var progWrap = document.getElementById('assign-progress-wrap');
+  var progBar = document.getElementById('assign-progress-bar');
+
+  if (!prefix) {
+    msgEl.style.color = '#e05555';
+    msgEl.textContent = 'Enter a code prefix first';
+    return;
+  }
+
+  var matches = _students.filter(function(s) { return s.code.indexOf(prefix) === 0; });
+  if (matches.length === 0) {
+    msgEl.style.color = '#e05555';
+    msgEl.textContent = 'No codes match "' + prefix + '"';
+    return;
+  }
+
+  applyBtn.disabled = true;
+  progWrap.style.display = 'block';
+  msgEl.style.color = '';
+
+  var updated = 0, failed = 0;
+  for (var i = 0; i < matches.length; i++) {
+    var code = matches[i].code;
+    msgEl.textContent = 'Updating ' + code + ' (' + (i + 1) + ' of ' + matches.length + ')…';
+    progBar.style.width = Math.round(((i + 1) / matches.length) * 100) + '%';
+    try {
+      await _db.collection('students').doc(code).set({ school: school }, { merge: true });
+      updated++;
+    } catch (e) {
+      console.error('assignSchoolBulk failed for', code, e);
+      failed++;
+    }
+  }
+
+  applyBtn.disabled = false;
+  msgEl.style.color = failed > 0 ? '#e05555' : '#4caf7d';
+  msgEl.textContent = '✅ Updated ' + updated + (failed > 0 ? ', ❌ ' + failed + ' failed' : '');
+
+  setTimeout(function() {
+    loadAllStudents();
+  }, 800);
+}
+
+// Close modal on overlay click
+document.getElementById('assign-school-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeAssignSchool();
 });
 
 // ── end
