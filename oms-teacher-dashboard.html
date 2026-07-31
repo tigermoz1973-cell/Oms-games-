@@ -667,6 +667,9 @@ function buildExpandPanel(s) {
     ${statsHtml}
     ${collHtml}
     ${noteHtml}
+    <div style="margin-top:16px;text-align:right">
+      <button class="icon-btn" style="border-color:#e05555;color:#e05555" onclick="event.stopPropagation(); confirmDeleteStudent('${s.code}', '${escHtml(s.name).replace(/'/g,"\\'")}')">🗑️ Delete Code</button>
+    </div>
   `;
 }
 
@@ -675,6 +678,27 @@ function toggleExpand(code) {
   _expandedCode = _expandedCode === code ? null : code;
   renderTable();
 };
+
+// ── Delete a student code ───────────────────────────────────────
+function confirmDeleteStudent(code, name) {
+  const label = name && name !== '(no name)' ? name + ' (' + code + ')' : code;
+  if (!confirm('Delete ' + label + '?\n\nThis permanently removes the code and all its progress. This cannot be undone.')) return;
+  deleteStudentCode(code);
+}
+
+async function deleteStudentCode(code) {
+  try {
+    await _db.collection('whitelist').doc(code).delete();
+    await _db.collection('students').doc(code).delete();
+    try { await _db.collection('students').doc(code).collection('progress').doc('main').delete(); } catch(e) {}
+    _expandedCode = null;
+    showToast('🗑️ ' + code + ' deleted');
+    await loadAllStudents();
+  } catch (e) {
+    console.error('deleteStudentCode failed', e);
+    showToast('❌ Failed to delete ' + code);
+  }
+}
 
 // ── Refresh ───────────────────────────────────────────────────
 async function refreshData() {
