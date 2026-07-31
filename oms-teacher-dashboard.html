@@ -325,6 +325,16 @@
   <!-- Filter bar -->
   <div class="filter-bar">
     <input class="filter-input" id="search-input" type="text" placeholder="🔍  Search by name or code…" oninput="renderTable()">
+    <select class="filter-select" id="school-filter-select" onchange="renderTable()">
+      <option value="">All Schools</option>
+      <option value="Lloyd Street">Lloyd Street</option>
+      <option value="Mt Pleasant Road">Mt Pleasant Road</option>
+      <option value="Mount Waverley">Mount Waverley</option>
+      <option value="Rowville">Rowville</option>
+      <option value="St James">St James</option>
+      <option value="St John the Baptist">St John the Baptist</option>
+      <option value="__unassigned">(No school set)</option>
+    </select>
     <select class="filter-select" id="sort-select" onchange="renderTable()">
       <option value="name">Sort: Name</option>
       <option value="code">Sort: Code</option>
@@ -363,6 +373,15 @@
   <div class="modal-card">
     <h3>➕ Add Student Code</h3>
     <input class="modal-code-input" id="new-code-input" type="text" maxlength="6" placeholder="AB1234" oninput="this.value=this.value.toUpperCase()">
+    <select class="modal-code-input" id="new-code-school" style="margin-top:10px">
+      <option value="">No school (unassigned)</option>
+      <option value="Lloyd Street">Lloyd Street</option>
+      <option value="Mt Pleasant Road">Mt Pleasant Road</option>
+      <option value="Mount Waverley">Mount Waverley</option>
+      <option value="Rowville">Rowville</option>
+      <option value="St James">St James</option>
+      <option value="St John the Baptist">St John the Baptist</option>
+    </select>
     <div class="modal-btns">
       <button class="modal-btn-cancel" onclick="closeAddStudent()">Cancel</button>
       <button class="modal-btn-add" id="add-btn" onclick="addStudentCode()">Add Code</button>
@@ -379,6 +398,15 @@
       <input class="modal-code-input" id="bulk-prefix-input" type="text" maxlength="2" placeholder="Prefix (e.g. LS)" style="text-align:center" oninput="this.value=this.value.toUpperCase()">
       <input class="modal-code-input" id="bulk-start-input" type="number" min="1" placeholder="Start number (e.g. 1)" style="text-align:center">
       <input class="modal-code-input" id="bulk-count-input" type="number" min="1" max="500" placeholder="How many (e.g. 150)" style="text-align:center">
+      <select class="modal-code-input" id="bulk-school-select" style="text-align:center">
+        <option value="">No school (unassigned)</option>
+        <option value="Lloyd Street">Lloyd Street</option>
+        <option value="Mt Pleasant Road">Mt Pleasant Road</option>
+        <option value="Mount Waverley">Mount Waverley</option>
+        <option value="Rowville">Rowville</option>
+        <option value="St James">St James</option>
+        <option value="St John the Baptist">St John the Baptist</option>
+      </select>
     </div>
     <div class="modal-msg" id="bulk-preview-msg" style="color:var(--blue)"></div>
     <div class="modal-btns">
@@ -503,7 +531,7 @@ async function loadAllStudents() {
           };
         }
       } catch(e) {}
-      results.push(Object.assign({ code: code, name: data.name || '(no name)', createdAt: data.createdAt || 0 }, progress));
+      results.push(Object.assign({ code: code, name: data.name || '(no name)', school: data.school || '', createdAt: data.createdAt || 0 }, progress));
     });
 
     await Promise.all(promises);
@@ -539,12 +567,17 @@ function updateSummaryStats() {
 function renderTable() {
   const search = document.getElementById('search-input').value.trim().toLowerCase();
   const sort   = document.getElementById('sort-select').value;
+  const schoolFilter = document.getElementById('school-filter-select').value;
 
-  let filtered = _students.filter(s =>
-    !search ||
-    s.name.toLowerCase().includes(search) ||
-    s.code.toLowerCase().includes(search)
-  );
+  let filtered = _students.filter(s => {
+    const matchesSearch = !search ||
+      s.name.toLowerCase().includes(search) ||
+      s.code.toLowerCase().includes(search);
+    if (!matchesSearch) return false;
+    if (!schoolFilter) return true;
+    if (schoolFilter === '__unassigned') return !s.school;
+    return s.school === schoolFilter;
+  });
 
   filtered.sort((a, b) => {
     if (sort === 'name')     return a.name.localeCompare(b.name);
@@ -579,7 +612,7 @@ function renderTable() {
     if (isExpanded) tr.classList.add('expanded');
     tr.innerHTML = `
       <td><span class="student-code">${s.code}</span></td>
-      <td class="student-name">${escHtml(s.name)}</td>
+      <td class="student-name">${escHtml(s.name)}${s.school ? `<div style="font-size:0.7rem;color:var(--subtext);font-weight:normal">${escHtml(s.school)}</div>` : ''}</td>
       <td class="center badge-cell">${badgeDotsHtml(badges)} <span style="font-size:0.75rem;color:var(--subtext);margin-left:4px">${earned}/9</span></td>
       <td class="center">
         ${pct !== null
@@ -773,6 +806,7 @@ function showToast(msg) {
 // ── Add Student Code modal ────────────────────────────────────
 function openAddStudent() {
   document.getElementById('new-code-input').value = '';
+  document.getElementById('new-code-school').value = '';
   document.getElementById('modal-msg').textContent = '';
   document.getElementById('modal-msg').style.color = '';
   document.getElementById('add-student-modal').classList.add('open');
@@ -785,6 +819,7 @@ function closeAddStudent() {
 
 async function addStudentCode() {
   var code = document.getElementById('new-code-input').value.trim().toUpperCase();
+  var school = document.getElementById('new-code-school').value;
   var msgEl = document.getElementById('modal-msg');
   var addBtn = document.getElementById('add-btn');
 
@@ -805,7 +840,9 @@ async function addStudentCode() {
     var studentRef = _db.collection('students').doc(code);
     var existing = await studentRef.get();
     if (!existing.exists) {
-      await studentRef.set({ name: '', pin: '', createdAt: Date.now() });
+      await studentRef.set({ name: '', pin: '', school: school, createdAt: Date.now() });
+    } else if (school) {
+      await studentRef.set({ school: school }, { merge: true });
     }
 
     msgEl.style.color = '#4caf7d';
@@ -850,6 +887,7 @@ function openBulkAdd() {
   document.getElementById('bulk-prefix-input').value = '';
   document.getElementById('bulk-start-input').value = '';
   document.getElementById('bulk-count-input').value = '';
+  document.getElementById('bulk-school-select').value = '';
   document.getElementById('bulk-preview-msg').textContent = '';
   document.getElementById('bulk-msg').textContent = '';
   document.getElementById('bulk-progress-wrap').style.display = 'none';
@@ -868,6 +906,7 @@ async function bulkAddCodes() {
   var prefix = document.getElementById('bulk-prefix-input').value.trim().toUpperCase();
   var start = parseInt(document.getElementById('bulk-start-input').value, 10);
   var count = parseInt(document.getElementById('bulk-count-input').value, 10);
+  var school = document.getElementById('bulk-school-select').value;
   var msgEl = document.getElementById('bulk-msg');
   var addBtn = document.getElementById('bulk-add-btn');
   var progWrap = document.getElementById('bulk-progress-wrap');
@@ -912,7 +951,7 @@ async function bulkAddCodes() {
       var studentRef = _db.collection('students').doc(code);
       var existingStudent = await studentRef.get();
       if (!existingStudent.exists) {
-        await studentRef.set({ name: '', pin: '', createdAt: Date.now() });
+        await studentRef.set({ name: '', pin: '', school: school, createdAt: Date.now() });
       }
       created++;
     } catch (e) {
