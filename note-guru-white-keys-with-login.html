@@ -559,6 +559,18 @@
   .menu-top-btn.ng-oct.active{border-color:var(--accent);color:var(--accent);}
   .menu-top-btn:hover{border-color:var(--accent);color:var(--accent);}
 
+  /* ── Edit Name modal (post-login, from menu) ── */
+  #edit-name-modal {
+    display:none; position:fixed; inset:0; z-index:300;
+    align-items:center; justify-content:center; padding:20px;
+    background:rgba(10,20,32,0.78); backdrop-filter:blur(3px);
+  }
+  #edit-name-modal.active { display:flex; }
+  .edit-name-card {
+    background:var(--card); border:1px solid var(--border); border-radius:16px;
+    padding:24px 20px; max-width:360px; width:100%; text-align:center;
+  }
+
   /* ══════════════════════════════
      CODE ENTRY SCREEN
   ══════════════════════════════ */
@@ -846,12 +858,37 @@
   <button class="code-skip" id="reset-back-btn" style="margin-top:8px;">← Back to PIN</button>
 </div>
 
+<!-- ══════════════════ EDIT NAME (post-login, from menu) ══════════════════ -->
+<div id="edit-name-modal">
+  <div class="edit-name-card">
+    <div class="code-logo" style="margin-bottom:16px;">
+      <span class="code-logo-icon">✏️</span>
+      <h1 style="font-size:1.4rem;">Edit your name</h1>
+    </div>
+    <div class="code-label">What should we call you?</div>
+    <input type="text" id="edit-name-input"
+      style="width:100%;background:var(--bg2);border:2px solid var(--border);color:var(--text);
+             border-radius:10px;padding:14px 12px;font-size:1.2rem;text-align:center;
+             font-family:Georgia,serif;margin-bottom:0;outline:none;"
+      placeholder="Type your name..."
+      maxlength="20"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();saveEditName();}"
+      autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false">
+    <div class="code-error" id="edit-name-error" style="margin-top:8px;"></div>
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="htp-nav-back" id="edit-name-cancel-btn" onclick="closeEditName()" style="flex:1;">Cancel</button>
+      <button class="htp-nav-next" id="edit-name-save-btn" onclick="saveEditName()" style="flex:1;">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════════ MENU ══════════════════ -->
 <div id="menu-screen" class="screen">
   <div class="logo">
     <span class="logo-icon">🎵</span>
     <h1>Note Guru</h1>
     <p id="menu-greeting">Train your musical sight-reading</p>
+    <button class="menu-top-btn" id="edit-name-link" onclick="openEditName()" style="display:none;margin:2px 0 8px;">✏️ Edit name</button>
     <div class="menu-btn-row">
       <button class="menu-top-btn" onclick="showRewards()">🏆 My Badges</button>
       <button class="menu-top-btn" onclick="showNoteGuide()">📖 Note Guide</button>
@@ -1341,6 +1378,51 @@ async function updateStudentPin(code, pin) {
     const { updateDoc: fsUpdate, doc: fsDoc } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
     await fsUpdate(fsDoc(_db, 'students', code), { pin });
   } catch(e) { console.warn('Update PIN failed', e); }
+}
+
+async function updateStudentName(code, name) {
+  if (!_db) return;
+  try {
+    const { updateDoc: fsUpdate, doc: fsDoc } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    await fsUpdate(fsDoc(_db, 'students', code), { name });
+  } catch(e) { console.warn('Update name failed', e); }
+}
+
+// ── Edit Name (post-login, from the menu) ──
+function openEditName() {
+  const input = document.getElementById('edit-name-input');
+  const err   = document.getElementById('edit-name-error');
+  if (input) input.value = _playerName || '';
+  if (err)   err.textContent = '';
+  const modal = document.getElementById('edit-name-modal');
+  if (modal) modal.classList.add('active');
+  setTimeout(function() { if (input) { input.focus(); input.select(); } }, 50);
+}
+
+function closeEditName() {
+  const modal = document.getElementById('edit-name-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+async function saveEditName() {
+  const input = document.getElementById('edit-name-input');
+  const err   = document.getElementById('edit-name-error');
+  const newName = input ? input.value.trim() : '';
+  if (newName.length < 2) { if (err) err.textContent = 'Please enter your name'; return; }
+  if (err) err.textContent = '';
+
+  _playerName = newName;
+  try { localStorage.setItem('omsPlayerName', newName); } catch(e) {}
+
+  if (_playerCode) {
+    try { await updateStudentName(_playerCode, newName); }
+    catch(e) { console.warn('Could not save name to Firebase', e); }
+  }
+
+  const greetEl = document.getElementById('menu-greeting');
+  if (greetEl) greetEl.textContent = 'Welcome back, ' + newName + '! 🎵';
+
+  closeEditName();
 }
 
 function showLoginScreen(id) {
@@ -4360,6 +4442,8 @@ function goMenu() {
       greetEl.textContent = 'Welcome back, ' + _playerName + '! 🎵';
     }
   }
+  const editNameLink = document.getElementById('edit-name-link');
+  if (editNameLink) editNameLink.style.display = _playerName ? '' : 'none';
   _isNewAccount = false; // only the very first menu screen after signup gets "Hey"
   showScreen('menu-screen');
 }
@@ -7108,12 +7192,9 @@ window.customSelectClef  = customSelectClef;
 window.customSelectMode  = customSelectMode;
 window.customRangeChanged = customRangeChanged;
 window.startCustomGame   = startCustomGame;
-window.backFromCustom    = backFromCustom;
 window.switchCollTab     = switchCollTab;
 window.showScreen        = showScreen;
-window.closeHTP          = closeHTP;
 window.closeNoteGuide    = closeNoteGuide;
-window.htpNext           = htpNext;
 window.htpBack           = htpBack;
 window.loadProgressFromFirebase = loadProgressFromFirebase;
 window.saveFullProgress  = saveFullProgress;
@@ -7134,6 +7215,9 @@ window.updatePinDisplay  = updatePinDisplay;
 window.updateCreatePinDisplay = updateCreatePinDisplay;
 window.showResetPinScreen = showResetPinScreen;
 window.submitResetName   = submitResetName;
+window.openEditName      = openEditName;
+window.closeEditName     = closeEditName;
+window.saveEditName      = saveEditName;
 </script>
 
 <!-- ══════════════════ HOW TO PLAY SCREEN ══════════════════ -->
