@@ -23,6 +23,16 @@
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+  /* Fixed exit button to the Muso Hub, matching the other games in the suite */
+  .home-tab{
+    position: fixed; top: calc(8px + env(safe-area-inset-top, 0px)); left: 8px;
+    width: 34px; height: 34px; border-radius: 50%; z-index: 999;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(20,15,50,0.65); border: 1px solid #382e7a;
+    font-size: 1.1rem; text-decoration: none; cursor: pointer;
+    backdrop-filter: blur(4px);
+  }
+
   body {
     background: var(--bg);
     color: var(--text);
@@ -119,7 +129,7 @@
   ══════════════════════════════ */
   #game-screen { padding:4px 10px 8px; max-width:520px; margin:0 auto; }
 
-  .game-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .game-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; padding-left:40px; }
   .lives { display:flex; gap:4px; align-items:center; }
   .heart { font-size:1.1rem; transition:all 0.3s; }
   .heart.lost { filter:grayscale(1); opacity:0.3; }
@@ -617,6 +627,7 @@
 </style>
 </head>
 <body>
+<a class="home-tab" href="https://claude.ai/artifact/PVR2QSPXTwfYw5Yxtqevbu" title="Exit to Muso Hub">🏠</a>
 
 <div id="belt-overlay">
   <div class="sparkle-container" id="sparkle-container"></div>
